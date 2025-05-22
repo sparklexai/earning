@@ -3,42 +3,28 @@ pragma solidity 0.8.29;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {BaseSparkleXStrategy} from "../BaseSparkleXStrategy.sol";
-import {WETH} from "../../../interfaces/IWETH.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPool} from "../../../interfaces/aave/IPool.sol";
-import {IAaveOracle} from "../../../interfaces/aave/IAaveOracle.sol";
+import {IVariableDebtToken} from "../../../interfaces/aave/IVariableDebtToken.sol";
 import {DataTypes} from "../../../interfaces/aave/DataTypes.sol";
 import {Constants} from "../../utils/Constants.sol";
+import {AAVEHelper} from "./AAVEHelper.sol";
 
 abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     using Math for uint256;
 
     ///////////////////////////////
-    // constants
-    ///////////////////////////////
-    uint8 constant ETH_CATEGORY_AAVE = 1;
-    uint8 constant sUSDe_CATEGORY_AAVE = 2;
-    uint8 constant USDe_CATEGORY_AAVE = 11;
-
-    /**
-     * @dev variable rate.
-     */
-    uint256 constant INTEREST_MODE = 2;
-
-    ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
-    IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
 
     ///////////////////////////////
     // member storage
     ///////////////////////////////
-    uint8 immutable _eMode;
-    ERC20 immutable _supplyToken;
-    ERC20 immutable _borrowToken;
-    ERC20 immutable _supplyAToken;
-    ERC20 immutable _variableDebtToken;
+    ERC20 public immutable _supplyToken;
+    ERC20 public immutable _borrowToken;
+    ERC20 public immutable _supplyAToken;
+    address public _aaveHelper;
 
     /**
      * @dev leverage ratio in AAVE with looping supply and borrow.
@@ -48,33 +34,21 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     ///////////////////////////////
     // events
     ///////////////////////////////
-    event BaseAAVEStrategyCreated(address indexed supplyToken, address indexed borrowToken, uint8 eMode);
-    event SupplyToAAVE(uint256 _supplied, uint256 _mintedAToken);
-    event BorrowFromAAVE(uint256 _borrowed, uint256 _ltv, uint256 _health);
-    event RepayDebtInAAVE(uint256 _repaidETH, uint256 _ltv, uint256 _health);
-    event WithdrawFromAAVE(uint256 _withdrawn, uint256 _ltv, uint256 _health);
+    event BaseAAVEStrategyCreated(
+        address indexed supplyToken, address indexed borrowToken, address indexed supplyAToken
+    );
     event MakeInvest(address indexed _caller, uint256 _borrowAmount, uint256 _assetAmount);
+    event DebtDelegateToAAVEHelper(address indexed _strategy, address indexed _helper);
+    event AAVEHelperChanged(address indexed _old, address indexed _new);
 
-    constructor(ERC20 token, address vault, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode)
+    constructor(ERC20 token, address vault, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken)
         BaseSparkleXStrategy(token, vault)
     {
-        supplyToken.approve(address(aavePool), type(uint256).max);
-        borrowToken.approve(address(aavePool), type(uint256).max);
-        supplyAToken.approve(address(aavePool), type(uint256).max);
-
         _supplyToken = supplyToken;
         _borrowToken = borrowToken;
         _supplyAToken = supplyAToken;
 
-        // Enable E Mode in AAVE for correlated assets
-        require(
-            eMode == ETH_CATEGORY_AAVE || eMode == USDe_CATEGORY_AAVE || eMode == sUSDe_CATEGORY_AAVE,
-            "!invalid emode category"
-        );
-        aavePool.setUserEMode(eMode);
-        _eMode = eMode;
-
-        emit BaseAAVEStrategyCreated(address(supplyToken), address(borrowToken), _eMode);
+        emit BaseAAVEStrategyCreated(address(supplyToken), address(borrowToken), address(supplyAToken));
     }
 
     function setLeverageRatio(uint256 _ratio) external onlyStrategist {
@@ -82,9 +56,48 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         LEVERAGE_RATIO_BPS = _ratio;
     }
 
+    function setAAVEHelper(address _newHelper) external onlyStrategist {
+        require(
+            _newHelper != Constants.ZRO_ADDR && AAVEHelper(_newHelper)._strategy() == address(this),
+            "!invalid aave helper"
+        );
+        emit AAVEHelperChanged(_aaveHelper, _newHelper);
+        _aaveHelper = _newHelper;
+        _delegateCreditToHelper();
+    }
+
     ///////////////////////////////
     // methods common to AAVE which might be overriden by children strategies
     ///////////////////////////////
+
+    function _supplyToAAVE(uint256 _supplyAmount) internal {
+        _supplyAmount = _capAmountByBalance(_supplyToken, _supplyAmount, false);
+        _approveToken(address(_supplyToken), _aaveHelper);
+        AAVEHelper(_aaveHelper).supplyToAAVE(_supplyAmount);
+    }
+
+    function _borrowFromAAVE(uint256 _toBorrow) internal returns (uint256) {
+        uint256 _availableToBorrow = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
+        require(_availableToBorrow >= _toBorrow, "borrow too much in AAVE!");
+        return AAVEHelper(_aaveHelper).borrowFromAAVE(_toBorrow);
+    }
+
+    function _repayDebtToAAVE(uint256 _debtToRepay) internal {
+        _debtToRepay = _capAmountByBalance(_borrowToken, _debtToRepay, false);
+        _approveToken(address(_borrowToken), _aaveHelper);
+        AAVEHelper(_aaveHelper).repayDebtToAAVE(_debtToRepay);
+    }
+
+    function _withdrawCollateralFromAAVE(uint256 _toWithdraw) internal returns (uint256) {
+        _approveToken(address(_supplyAToken), _aaveHelper);
+
+        (uint256 _netSupply,,) = getNetSupplyAndDebt(false);
+        if (_toWithdraw > _netSupply) {
+            _toWithdraw = _netSupply;
+        }
+
+        return AAVEHelper(_aaveHelper).withdrawCollateralFromAAVE(_toWithdraw);
+    }
 
     /**
      * @dev strategist could use this method to adjust the position in AAVE for multiple scenarios:
@@ -104,7 +117,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
                 _leveragePosition(_assetAmount, _borrowAmount);
             } else {
                 uint256 _borrowed = _borrowFromAAVE(_borrowAmount);
-                _prepareAssetFromBorrow(_borrowed);
+                _returnAssetToVault(_borrowed);
             }
         }
         emit MakeInvest(msg.sender, _borrowAmount, _assetAmount);
@@ -123,13 +136,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
      * @dev Note that this method should check position should keep below maximum LTV
      */
     function _leveragePosition(uint256 _assetAmount, uint256 _borrowAmount) internal virtual {}
-
-    /**
-     * @dev convert borrow token with given amount to asset token
-     */
-    function _prepareAssetFromBorrow(uint256 _borrowAmount) internal virtual returns (uint256) {
-        return _borrowAmount;
-    }
 
     /**
      * @dev convert asset token with given amount to supply token
@@ -174,76 +180,8 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     ///////////////////////////////
-    // supply/withdraw and borrow/repay within AAVE
-    ///////////////////////////////
-
-    function _supplyToAAVE(uint256 _supplyAmount) internal {
-        uint256 _toSupply = _supplyAmount > 0 ? _supplyAmount : _supplyToken.balanceOf(address(this));
-        uint256 _aTokenBefore = _supplyAToken.balanceOf(address(this));
-        aavePool.supply(address(_supplyToken), _toSupply, address(this), 0);
-        uint256 _aTokenAfter = _supplyAToken.balanceOf(address(this));
-        emit SupplyToAAVE(_toSupply, _aTokenAfter - _aTokenBefore);
-    }
-
-    function _borrowFromAAVE(uint256 _toBorrow) internal returns (uint256) {
-        uint256 _availableToBorrow = getAvailableBorrowAmount();
-        require(_availableToBorrow >= _toBorrow, "borrow too much in AAVE!");
-
-        uint256 _toBorrowBefore = _borrowToken.balanceOf(address(this));
-        aavePool.borrow(address(_borrowToken), _toBorrow, 2, 0, address(this));
-        uint256 _toBorrowAfter = _borrowToken.balanceOf(address(this));
-        uint256 _borrowed = _toBorrowAfter - _toBorrowBefore;
-
-        (,,,, uint256 newLtv, uint256 newHealthFactor) = aavePool.getUserAccountData(address(this));
-        emit BorrowFromAAVE(_borrowed, newLtv, newHealthFactor);
-        return _borrowed;
-    }
-
-    function _repayDebtToAAVE(uint256 _debtToRepay) internal {
-        if (_debtToRepay < type(uint256).max) {
-            require(_borrowToken.balanceOf(address(this)) >= _debtToRepay, "not enough to repay in AAVE!");
-        }
-        uint256 _repaid = aavePool.repay(address(_borrowToken), _debtToRepay, 2, address(this));
-
-        (,,,, uint256 newLtv, uint256 newHealthFactor) = aavePool.getUserAccountData(address(this));
-        emit RepayDebtInAAVE(_repaid, newLtv, newHealthFactor);
-    }
-
-    function _withdrawCollateralFromAAVE(uint256 _assetToWithdraw) internal returns (uint256) {
-        uint256 _withdrawn = aavePool.withdraw(address(_supplyToken), _assetToWithdraw, address(this));
-
-        (,,,, uint256 newLtv, uint256 newHealthFactor) = aavePool.getUserAccountData(address(this));
-        emit WithdrawFromAAVE(_withdrawn, newLtv, newHealthFactor);
-        return _withdrawn;
-    }
-
-    function getMaxLTV() public view returns (uint256) {
-        DataTypes.CollateralConfig memory config = aavePool.getEModeCategoryCollateralConfig(_eMode);
-        uint256 _ltv = config.ltv;
-        require(_ltv < Constants.TOTAL_BPS, "wrong ltv!");
-        return _ltv;
-    }
-
-    ///////////////////////////////
     // convenient helper methods
     ///////////////////////////////
-
-    function _getMaxAllowedDebt(uint256 _supply) internal view returns (uint256) {
-        return _supply > 0 ? (_supply * getMaxLTV() / Constants.TOTAL_BPS) : 0;
-    }
-
-    /**
-     * @dev convert asset from given amount in base unit denomination in its own native denomination
-     * @param _nativeUnit 1e18 for most ETH related token, like most ERC20
-     */
-    function convertFromBaseAmount(address _asset, uint256 _baseAmount, uint256 _nativeUnit)
-        public
-        view
-        returns (uint256)
-    {
-        uint256 _assetPriceInBase = aaveOracle.getAssetPrice(_asset);
-        return _baseAmount * _nativeUnit / _assetPriceInBase;
-    }
 
     /**
      * @dev Return net supply and borrow in their own denominations
@@ -254,17 +192,9 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         view
         returns (uint256 _netSupply, uint256 _debt, uint256 _totalSupply)
     {
-        (uint256 totalCollateralBase, uint256 totalDebtBase,,,,) = aavePool.getUserAccountData(address(this));
-        uint256 _cAmount = totalCollateralBase > 0
-            ? convertFromBaseAmount(
-                address(_supplyToken), totalCollateralBase, Constants.convertDecimalToUnit(_supplyToken.decimals())
-            )
-            : 0;
-        uint256 _dAmount = totalDebtBase > 0
-            ? convertFromBaseAmount(
-                address(_borrowToken), totalDebtBase, Constants.convertDecimalToUnit(_borrowToken.decimals())
-            )
-            : 0;
+        (uint256 _cAmount, uint256 _dAmount, uint256 totalCollateralBase, uint256 totalDebtBase) =
+            AAVEHelper(_aaveHelper).getTotalSupplyAndDebt(address(this));
+
         if (_inAssetDenomination) {
             _debt = totalDebtBase > 0 ? _convertBorrowToAsset(_dAmount) : 0;
             _totalSupply = totalCollateralBase > 0 ? _convertSupplyToAsset(_cAmount) : 0;
@@ -281,25 +211,15 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function getSafeLeveragedSupply(uint256 _initialSupply) public view returns (uint256) {
-        return LEVERAGE_RATIO_BPS > 0 ? _applyLeverageMargin(getMaxLeverage(_initialSupply)) : _initialSupply;
+        return LEVERAGE_RATIO_BPS > 0
+            ? _applyLeverageMargin(AAVEHelper(_aaveHelper).getMaxLeverage(_initialSupply))
+            : _initialSupply;
     }
 
-    function getMaxLeverage(uint256 _amount) public view returns (uint256) {
-        uint256 _maxLTV = getMaxLTV();
-        return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
-    }
-
-    /**
-     * @dev Return available borrow token amount in its own denominations
-     */
-    function getAvailableBorrowAmount() public view returns (uint256) {
-        (,, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(address(this));
-
-        uint256 _availableToBorrow = availableBorrowsBase > 0
-            ? convertFromBaseAmount(
-                address(_borrowToken), availableBorrowsBase, Constants.convertDecimalToUnit(_borrowToken.decimals())
-            )
-            : 0;
-        return _availableToBorrow;
+    function _delegateCreditToHelper() internal {
+        address variableDebtToken = aavePool.getReserveVariableDebtToken(address(_borrowToken));
+        IVariableDebtToken(variableDebtToken).approveDelegation(_aaveHelper, type(uint256).max);
+        aavePool.setUserEMode(AAVEHelper(_aaveHelper)._eMode());
+        emit DebtDelegateToAAVEHelper(address(this), _aaveHelper);
     }
 }

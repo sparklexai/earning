@@ -4,6 +4,9 @@ pragma solidity 0.8.29;
 import {Test, console} from "forge-std/Test.sol";
 import {SparkleXVault} from "../../src/SparkleXVault.sol";
 import {ETHEtherFiAAVEStrategy} from "../../src/strategies/aave/ETHEtherFiAAVEStrategy.sol";
+import {AAVEHelper} from "../../src/strategies/aave/AAVEHelper.sol";
+import {EtherFiHelper} from "../../src/strategies/etherfi/EtherFiHelper.sol";
+import {TokenSwapper} from "../../src/utils/TokenSwapper.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {WETH} from "../../interfaces/IWETH.sol";
@@ -19,6 +22,9 @@ import {TestUtils} from "../TestUtils.sol";
 contract ETHEtherFiAAVEStrategyTest is TestUtils {
     SparkleXVault public stkVault;
     ETHEtherFiAAVEStrategy public myStrategy;
+    TokenSwapper public swapper;
+    AAVEHelper public aaveHelper;
+    EtherFiHelper public etherfiHelper;
     address public stkVOwner;
     address public strategist;
 
@@ -28,6 +34,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
     address constant withdrawNFTAdmin = 0x0EF8fa4760Db8f5Cd4d993f3e3416f30f942D705;
+    ERC20 aWeETH = ERC20(0xBdfa7b7893081B35Fb54027489e2Bc7A38275129);
 
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleXVault", "SPXV");
@@ -36,13 +43,23 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy = new ETHEtherFiAAVEStrategy(address(stkVault));
         strategist = myStrategy.strategist();
 
+        swapper = new TokenSwapper();
+        etherfiHelper = new EtherFiHelper();
+        aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), aWeETH, 1);
+
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), 100);
+        vm.stopPrank();
+
+        vm.startPrank(strategist);
+        myStrategy.setSwapper(address(swapper));
+        myStrategy.setEtherFiHelper(address(etherfiHelper));
+        myStrategy.setAAVEHelper(address(aaveHelper));
         vm.stopPrank();
     }
 
     function test_GetMaxLTV() public {
-        uint256 _ltv = myStrategy.getMaxLTV();
+        uint256 _ltv = aaveHelper.getMaxLTV();
         // https://app.aave.com/reserve-overview/?underlyingAsset=0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee&marketName=proto_mainnet_v3
         assertEq(_ltv, 9300);
     }
@@ -188,7 +205,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         _totalAssets = stkVault.totalAssets();
         uint256 _totalLoss = _flashloanFee
-            + TestUtils._applyFlashLoanFeeFromAAVE(myStrategy.getMaxLeverage(_portionVal)) + _activeWithdrawReqs[0][2]
+            + TestUtils._applyFlashLoanFeeFromAAVE(aaveHelper.getMaxLeverage(_portionVal)) + _activeWithdrawReqs[0][2]
             + _activeWithdrawReqs[0][3];
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
 
@@ -201,7 +218,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 2);
 
         _totalAssets = stkVault.totalAssets();
-        _totalLoss = _totalLoss + TestUtils._applyFlashLoanFeeFromAAVE(myStrategy.getMaxLeverage(_portionVal2))
+        _totalLoss = _totalLoss + TestUtils._applyFlashLoanFeeFromAAVE(aaveHelper.getMaxLeverage(_portionVal2))
             + _activeWithdrawReqs[1][2] + _activeWithdrawReqs[1][3];
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
 
@@ -244,7 +261,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_initDebt + _flashloanFee, _debt, BIGGER_TOLERANCE));
         assertTrue(_assertApproximateEq(_totalSupply, (_initSupply + _initDebt), BIGGER_TOLERANCE));
 
-        uint256 _maxBorrow = myStrategy.getAvailableBorrowAmount();
+        uint256 _maxBorrow = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
         uint256 _toRedeem = IWeETH(weETH).getWeETHByeETH(_maxBorrow);
         vm.startPrank(strategist);
         myStrategy.redeem(_toRedeem);
@@ -254,6 +271,21 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 1);
         console.log("_maxBorrow:%d,_toRedeem:%d,_reqEETH:%d", _maxBorrow, _toRedeem, _activeWithdrawReqs[0][1]);
         assertTrue(_assertApproximateEq(_maxBorrow, _activeWithdrawReqs[0][1], COMP_TOLERANCE));
+
+        uint256[] memory _reqIds = new uint256[](1);
+        _reqIds[0] = _activeWithdrawReqs[0][0];
+
+        _finalizeWithdrawRequest(_reqIds[0]);
+
+        vm.startPrank(strategist);
+        myStrategy.claimAndRepay(_reqIds, _maxBorrow);
+        vm.stopPrank();
+
+        _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
+        assertEq(_activeWithdrawReqs.length, 0);
+
+        (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
+        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
     }
 
     function _printAAVEPosition() internal view returns (uint256) {
@@ -282,7 +314,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         returns (uint256 _reqId, IWithdrawRequestNFT.WithdrawRequest memory _request)
     {
         _reqId = etherfiWithdrawNFT.nextRequestId() - 1;
-        assertEq(etherfiWithdrawNFT.ownerOf(_reqId), address(myStrategy));
+        assertEq(etherfiWithdrawNFT.ownerOf(_reqId), address(etherfiHelper));
+        assertEq(etherfiHelper.withdrawRequsters(_reqId), address(myStrategy));
         _request = etherfiWithdrawNFT.getRequest(_reqId);
         assertTrue(_request.isValid);
     }
