@@ -48,6 +48,7 @@ contract SparkleXVault is ERC4626, Ownable {
     event StrategyRemoved(address indexed _strategy);
     event RedemptionRequested(address indexed _user, uint256 _share, uint256 _asset);
     event RedemptionRequestClaimed(address indexed _user, uint256 _share, uint256 _asset);
+    event AssetAdded(address indexed _depositor, address indexed _referralCode, uint256 _amount);
 
     constructor(ERC20 _asset, string memory name_, string memory symbol_)
         ERC4626(_asset)
@@ -160,6 +161,14 @@ contract SparkleXVault is ERC4626, Ownable {
             }
         }
         return _residue + _allocation;
+    }
+
+    function depositWithReferral(uint256 assets, address receiver, address referralCode) external returns (uint256) {
+        uint256 shares = deposit(assets, receiver);
+        if (shares > 0) {
+            emit AssetAdded(msg.sender, referralCode, assets);
+        }
+        return shares;
     }
 
     /**

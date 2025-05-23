@@ -66,10 +66,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
     function test_Yield_Collect_ZeroLeverage() public {
         address _user = TestUtils._getSugarUser();
+        uint256 _wETHVal = 500 ether;
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _share = stkVault.deposit(wETHVal, _user);
+        uint256 _share = stkVault.deposit(_wETHVal, _user);
         vm.stopPrank();
 
         // now test yield without leverage
@@ -80,13 +81,13 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         uint256 _residue = ERC20(wETH).balanceOf(address(stkVault));
         uint256 _totalAssets = stkVault.totalAssets();
-        assertTrue(_assertApproximateEq(wETHVal, _totalAssets, BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_wETHVal, _totalAssets, BIGGER_TOLERANCE));
 
         (uint256 _netSupply, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
-        assertTrue(_assertApproximateEq(wETHVal - _residue, _netSupply, BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_wETHVal - _residue, _netSupply, BIGGER_TOLERANCE));
         assertEq(0, _debt);
 
-        uint256 _toRedeem = 1000 * 1e18;
+        uint256 _toRedeem = 100 * 1e18;
         uint256 _toRedeemShare = stkVault.convertToShares(_toRedeem);
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _toRedeemShare, address(stkVault));
         assertEq(stkVault.userRedemptionRequestShares(_user), _toRedeemShare);
@@ -105,7 +106,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_toRedeem <= _residue);
 
         _totalAssets = stkVault.totalAssets();
-        assertTrue(_assertApproximateEq(wETHVal, _totalAssets, BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_wETHVal, _totalAssets, BIGGER_TOLERANCE));
 
         (uint256 _newNetSupply, uint256 _newDebt,) = myStrategy.getNetSupplyAndDebt(true);
         assertEq(0, _newDebt);
@@ -237,6 +238,46 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 0);
 
         _claimRedemptionRequest(_user, _toRedeemShare);
+    }
+
+    function test_Basic_BatchRedemption() public {
+        address _user = TestUtils._getSugarUser();
+        address _user2 = TestUtils._getSugarUser();
+
+        vm.startPrank(_user);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        uint256 _testVal = 100 ether;
+        uint256 _share = stkVault.deposit(_testVal, _user);
+        vm.stopPrank();
+
+        vm.startPrank(_user2);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        uint256 _share2 = stkVault.deposit(_testVal, _user2);
+        vm.stopPrank();
+
+        // around 83% of TVL is invested with 17% left in vault
+        uint256 _borrowedDebt = _testVal * 5;
+        vm.startPrank(strategist);
+        myStrategy.invest(_borrowedDebt / 3, _borrowedDebt);
+        vm.stopPrank();
+
+        // multiple redemption from users
+        uint256 _redemptionShare = (_share + _share2) / 5;
+        uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _redemptionShare, address(stkVault));
+        uint256 _redemptioRequested2 = TestUtils._makeRedemptionRequest(_user2, _redemptionShare, address(stkVault));
+
+        // borrow from AAVE position to satisfy redemption
+        vm.startPrank(strategist);
+        myStrategy.invest(0, _redemptionShare * 2);
+        vm.stopPrank();
+
+        address[] memory _users = new address[](2);
+        _users[0] = _user;
+        _users[1] = _user2;
+        uint256[] memory _shares = new uint256[](2);
+        _shares[0] = _redemptionShare;
+        _shares[1] = _redemptionShare;
+        TestUtils._batchClaimRedemptionRequest(stkVOwner, _users, _shares, address(stkVault), COMP_TOLERANCE);
     }
 
     function test_Basic_Invest_Redeem() public {

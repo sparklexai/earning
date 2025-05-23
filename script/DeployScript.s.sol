@@ -26,11 +26,11 @@ contract DeployScript is Script {
         // Contract creation
         SparkleXVault stkVault = new SparkleXVault(ERC20(wETH), "SparkleX-ETH-Vault", "SPX-ETH-V");
 
+        ETHEtherFiAAVEStrategy myStrategy = new ETHEtherFiAAVEStrategy(address(stkVault));
+
         TokenSwapper tokenSwapper = new TokenSwapper();
 
         EtherFiHelper etherFiHelper = new EtherFiHelper();
-
-        ETHEtherFiAAVEStrategy myStrategy = new ETHEtherFiAAVEStrategy(address(stkVault));
 
         AAVEHelper aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), ERC20(aWeETH), 1);
 

@@ -117,7 +117,8 @@ contract AAVEHelper {
 
     function withdrawCollateralFromAAVE(uint256 _toWithdraw) external returns (uint256) {
         uint256 _aTokenOnBehalf = _supplyAToken.balanceOf(msg.sender);
-        uint256 _aTokenRequired = _calculateATokenAmount(address(_supplyToken), _toWithdraw);
+        // might be a bit bigger number for required
+        uint256 _aTokenRequired = _toWithdraw;
         uint256 _toTransfer = _aTokenRequired > _aTokenOnBehalf ? _aTokenOnBehalf : _aTokenRequired;
         _supplyAToken.transferFrom(msg.sender, address(this), _toTransfer);
 
@@ -201,10 +202,5 @@ contract AAVEHelper {
 
     function _checkEMode(uint8 _mode) internal view returns (bool) {
         return (_mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE);
-    }
-
-    function _calculateATokenAmount(address asset, uint256 underlyingAmount) internal view returns (uint256) {
-        uint256 normalizedIncome = aavePool.getReserveNormalizedIncome(asset);
-        return (underlyingAmount * normalizedIncome) / 1e27;
     }
 }

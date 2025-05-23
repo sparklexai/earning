@@ -73,4 +73,27 @@ contract TestUtils is Test {
 
         assertTrue(_assertApproximateEq(_less, _actualRedeemed, _tolerance));
     }
+
+    function _batchClaimRedemptionRequest(
+        address _claimer,
+        address[] memory _users,
+        uint256[] memory _shares,
+        address _vault,
+        uint256 _tolerance
+    ) internal returns (uint256 _actualRedeemed) {
+        uint256 _currentWorth;
+        uint256 _requestedAsset;
+        for (uint256 i = 0; i < _users.length; i++) {
+            _currentWorth = _currentWorth + SparkleXVault(_vault).previewRedeem(_shares[i]);
+            _requestedAsset = _requestedAsset + SparkleXVault(_vault).userRedemptionRequestAssets(_users[i]);
+        }
+
+        uint256 _less = _requestedAsset > _currentWorth ? _currentWorth : _requestedAsset;
+
+        vm.startPrank(_claimer);
+        _actualRedeemed = SparkleXVault(_vault).batchClaimRedemptionRequestsFor(_users);
+        vm.stopPrank();
+
+        assertTrue(_assertApproximateEq(_less, _actualRedeemed, _tolerance));
+    }
 }
