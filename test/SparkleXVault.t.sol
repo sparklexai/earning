@@ -24,6 +24,8 @@ contract SparkleXVaultTest is TestUtils {
     }
 
     function test_Basic_Deposit_And_Withdraw() public {
+        uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
+
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
@@ -35,7 +37,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(_share, _userShare);
 
         uint256 _totalAssets = stkVault.totalAssets();
-        assertEq(wETHVal, _totalAssets);
+        assertEq(wETHVal + _generousAsset, _totalAssets);
 
         uint256 _redeemed = TestUtils._makeRedemptionRequest(_user, _userShare, address(stkVault));
 
@@ -43,12 +45,48 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(0, _userShare);
 
         _totalAssets = stkVault.totalAssets();
-        assertEq(0, _totalAssets);
+        assertEq(_generousAsset, _totalAssets);
 
         assertEq(wETHVal, _redeemed);
     }
 
+    function test_Deposit_Inflation() public {
+        address _user = TestUtils._getSugarUser();
+        address _attacker = TestUtils._getSugarUser();
+
+        vm.startPrank(_user);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(_attacker);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        vm.stopPrank();
+
+        uint256 _attackShare = 1 ether;
+        vm.startPrank(_attacker);
+        stkVault.deposit(_attackShare, _attacker);
+        ERC20(wETH).transfer(address(stkVault), wETHVal - _attackShare);
+        vm.stopPrank();
+        assertEq(_attackShare - MIN_SHARE, stkVault.balanceOf(_attacker));
+
+        uint256 _victimAmt = wETHVal * 990 / 1000;
+        vm.startPrank(_user);
+        uint256 _victimShare = stkVault.deposit(_victimAmt, _user);
+        vm.stopPrank();
+
+        assertTrue(_victimShare > 1);
+        assertEq(_victimShare, stkVault.balanceOf(_user));
+
+        uint256 _redeemed = TestUtils._makeRedemptionRequest(_user, _victimShare, address(stkVault));
+
+        assertEq(0, stkVault.balanceOf(_user));
+        console.log("_redeemed:%d,_victimAmt:%d", _redeemed, _victimAmt);
+        assertTrue(_assertApproximateEq(_redeemed, _victimAmt, BIGGER_TOLERANCE));
+    }
+
     function test_DepositWithReferral() public {
+        uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
+
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
@@ -66,7 +104,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(_share, _userShare);
 
         uint256 _totalAssets = stkVault.totalAssets();
-        assertEq(wETHVal, _totalAssets);
+        assertEq(wETHVal + _generousAsset, _totalAssets);
     }
 
     function test_Strategy_Add_Remove() public {

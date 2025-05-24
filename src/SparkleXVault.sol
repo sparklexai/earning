@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC4626} from "@openzeppelin/contracts/token/ERC20/extensions/ERC4626.sol";
 import {Constants} from "./utils/Constants.sol";
 import {IStrategy} from "../interfaces/IStrategy.sol";
@@ -15,6 +16,7 @@ contract SparkleXVault is ERC4626, Ownable {
     // constants
     ///////////////////////////////
     uint8 constant MAX_ACTIVE_STRATEGY = 8;
+    uint256 constant MIN_SHARE = 10 ** 6;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -121,6 +123,7 @@ contract SparkleXVault is ERC4626, Ownable {
         uint256 _strategyAlloc = strategyAllocations[_strategyAddr];
         require(_strategyAlloc > 0 && IStrategy(_strategyAddr).vault() == address(this), "!invalid strategy to remove");
 
+        require(IStrategy(_strategyAddr).assetsInCollection() == 0, "!pending collection still in strategy");
         IStrategy(_strategyAddr).collectAll();
 
         strategiesAllocationSum = strategiesAllocationSum - _strategyAlloc;
@@ -150,6 +153,22 @@ contract SparkleXVault is ERC4626, Ownable {
     ///////////////////////////////
     // erc4626 customized methods
     ///////////////////////////////
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
+        require(shares > 0, "!deposit mint zero share");
+
+        SafeERC20.safeTransferFrom(ERC20(asset()), caller, address(this), assets);
+
+        if (totalSupply() == 0) {
+            require(shares > MIN_SHARE, "!too small first share");
+            _mint(address(this), MIN_SHARE);
+            shares = shares - MIN_SHARE;
+        }
+
+        _mint(receiver, shares);
+
+        emit Deposit(caller, receiver, assets, shares);
+    }
+
     function totalAssets() public view override returns (uint256) {
         uint256 _residue = ERC20(asset()).balanceOf(address(this));
         uint256 _allocation;
@@ -165,9 +184,7 @@ contract SparkleXVault is ERC4626, Ownable {
 
     function depositWithReferral(uint256 assets, address receiver, address referralCode) external returns (uint256) {
         uint256 shares = deposit(assets, receiver);
-        if (shares > 0) {
-            emit AssetAdded(msg.sender, referralCode, assets);
-        }
+        emit AssetAdded(msg.sender, referralCode, assets);
         return shares;
     }
 

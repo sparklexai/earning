@@ -115,6 +115,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     }
 
     function test_Leverage_Collect_Everything() public {
+        _fundFirstDepositGenerously(address(stkVault));
+
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);

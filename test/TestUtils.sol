@@ -13,6 +13,7 @@ contract TestUtils is Test {
     uint256 constant wETHVal = 10000 ether;
     uint256 constant COMP_TOLERANCE = 10000;
     uint256 constant BIGGER_TOLERANCE = 3 * 1e16;
+    uint256 constant MIN_SHARE = 10 ** 6;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();
@@ -95,5 +96,15 @@ contract TestUtils is Test {
         vm.stopPrank();
 
         assertTrue(_assertApproximateEq(_less, _actualRedeemed, _tolerance));
+    }
+
+    function _fundFirstDepositGenerously(address _vault) internal returns (uint256) {
+        address _generousUser = _getSugarUser();
+        uint256 _generousAsset = MIN_SHARE + 1;
+        vm.startPrank(_generousUser);
+        ERC20(wETH).approve(_vault, type(uint256).max);
+        SparkleXVault(_vault).deposit(_generousAsset, _generousUser);
+        vm.stopPrank();
+        return _generousAsset;
     }
 }
