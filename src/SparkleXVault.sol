@@ -25,12 +25,14 @@ contract SparkleXVault is ERC4626, Ownable {
     ///////////////////////////////
     // member storage
     ///////////////////////////////
-    uint256 EARN_RATIO_BPS = 9900;
-    uint256 strategiesAllocationSum;
+    uint256 public EARN_RATIO_BPS = 9900;
+    uint256 public WITHDRAW_FEE_BPS = 10;
+    uint256 public strategiesAllocationSum;
 
     mapping(address => uint256) public strategyAllocations;
     address[MAX_ACTIVE_STRATEGY] allStrategies;
-    address _redemptionClaimer;
+    address public _redemptionClaimer;
+    address public _feeRecipient;
 
     /**
      * @dev active strategy number
@@ -51,6 +53,9 @@ contract SparkleXVault is ERC4626, Ownable {
     event RedemptionRequested(address indexed _user, uint256 _share, uint256 _asset);
     event RedemptionRequestClaimed(address indexed _user, uint256 _share, uint256 _asset);
     event AssetAdded(address indexed _depositor, address indexed _referralCode, uint256 _amount);
+    event RedemptionClaimerChanged(address indexed _old, address indexed _new);
+    event FeeRecipientChanged(address indexed _old, address indexed _new);
+    event WithdrawFeeCharged(address indexed _withdrawer, address indexed _recipient, uint256 _fee);
 
     constructor(ERC20 _asset, string memory name_, string memory symbol_)
         ERC4626(_asset)
@@ -59,6 +64,7 @@ contract SparkleXVault is ERC4626, Ownable {
     {
         require(address(_asset) != Constants.ZRO_ADDR, "!invalid asset");
         _redemptionClaimer = msg.sender;
+        _feeRecipient = msg.sender;
     }
 
     /**
@@ -85,14 +91,34 @@ contract SparkleXVault is ERC4626, Ownable {
     // core external methods
     ///////////////////////////////
 
+    function getRedemptionClaimer() external view returns (address) {
+        return _redemptionClaimer;
+    }
+
+    function getFeeRecipient() external view returns (address) {
+        return _feeRecipient;
+    }
+
     function setRedemptionClaimer(address _newClaimer) external onlyOwner {
         require(_newClaimer != Constants.ZRO_ADDR, "!invalid redemption claimer");
+        emit RedemptionClaimerChanged(_redemptionClaimer, _newClaimer);
         _redemptionClaimer = _newClaimer;
+    }
+
+    function setFeeRecipient(address _newRecipient) external onlyOwner {
+        require(_newRecipient != Constants.ZRO_ADDR, "!invalid fee recipient");
+        emit FeeRecipientChanged(_feeRecipient, _newRecipient);
+        _feeRecipient = _newRecipient;
     }
 
     function setEarnRatio(uint256 _ratio) external onlyOwner {
         require(_ratio >= 0 && _ratio <= Constants.TOTAL_BPS, "invalid earn ratio!");
         EARN_RATIO_BPS = _ratio;
+    }
+
+    function setWithdrawFeeRatio(uint256 _ratio) external onlyOwner {
+        require(_ratio >= 0 && _ratio < Constants.TOTAL_BPS, "invalid withdraw fee ratio!");
+        WITHDRAW_FEE_BPS = _ratio;
     }
 
     function addStrategy(address _strategyAddr, uint256 _allocation) external onlyOwner {
@@ -188,6 +214,27 @@ contract SparkleXVault is ERC4626, Ownable {
         return shares;
     }
 
+    function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
+        internal
+        override
+    {
+        if (caller != owner) {
+            _spendAllowance(owner, caller, shares);
+        }
+        _burn(owner, shares);
+        if (WITHDRAW_FEE_BPS > 0) {
+            uint256 _fee = assets * WITHDRAW_FEE_BPS / Constants.TOTAL_BPS;
+            assets = assets - _fee;
+            if (_fee > 0) {
+                SafeERC20.safeTransfer(ERC20(asset()), _feeRecipient, _fee);
+                emit WithdrawFeeCharged(owner, _feeRecipient, _fee);
+            }
+        }
+        SafeERC20.safeTransfer(ERC20(asset()), receiver, assets);
+
+        emit Withdraw(caller, receiver, owner, assets, shares);
+    }
+
     /**
      * @dev user should use this method to request redemption.
      */
@@ -203,7 +250,9 @@ contract SparkleXVault is ERC4626, Ownable {
         (uint256 _residue, bool _notEnough) = _checkAssetResidue(_asset);
         if (!_notEnough) {
             // direct redemption immediately
-            return redeem(shares, msg.sender, msg.sender);
+            uint256 _before = ERC20(asset()).balanceOf(msg.sender);
+            redeem(shares, msg.sender, msg.sender);
+            return ERC20(asset()).balanceOf(msg.sender) - _before;
         } else {
             // need to request withdraw from strategies by monitoring bot
             require(

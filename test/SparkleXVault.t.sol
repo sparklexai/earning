@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {WETH} from "../interfaces/IWETH.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
+import {Constants} from "../src/utils/Constants.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {DummyStrategy} from "./mock/DummyStrategy.sol";
 
@@ -21,6 +22,7 @@ contract SparkleXVaultTest is TestUtils {
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleX-ETH-Vault", "SPX-ETH-V");
         stkVOwner = stkVault.owner();
+        _changeWithdrawFee(stkVOwner, address(stkVault), 0);
     }
 
     function test_Basic_Deposit_And_Withdraw() public {
@@ -48,6 +50,35 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(_generousAsset, _totalAssets);
 
         assertEq(wETHVal, _redeemed);
+    }
+
+    function test_Withdraw_Fee() public {
+        uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
+
+        address _user = TestUtils._getSugarUser();
+
+        vm.startPrank(_user);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        uint256 _share = stkVault.deposit(wETHVal, _user);
+        vm.stopPrank();
+        uint256 _userShare = stkVault.balanceOf(_user);
+
+        uint256 _feeBps = 1000;
+        _changeWithdrawFee(stkVOwner, address(stkVault), _feeBps);
+
+        address payable _feeRecipient = _getNextUserAddress();
+        vm.startPrank(stkVOwner);
+        SparkleXVault(stkVault).setFeeRecipient(_feeRecipient);
+        vm.stopPrank();
+        assertEq(_feeRecipient, stkVault.getFeeRecipient());
+
+        uint256 _redeemed = TestUtils._makeRedemptionRequest(_user, _userShare, address(stkVault));
+
+        _userShare = stkVault.balanceOf(_user);
+        assertEq(0, _userShare);
+
+        assertEq(wETHVal * (Constants.TOTAL_BPS - _feeBps) / Constants.TOTAL_BPS, _redeemed);
+        assertEq(wETHVal * _feeBps / Constants.TOTAL_BPS, ERC20(wETH).balanceOf(_feeRecipient));
     }
 
     function test_Deposit_Inflation() public {

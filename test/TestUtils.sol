@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {WETH} from "../interfaces/IWETH.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
+import {Constants} from "../src/utils/Constants.sol";
 
 contract TestUtils is Test {
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -44,7 +45,7 @@ contract TestUtils is Test {
     }
 
     function _applyFlashLoanFeeFromAAVE(uint256 _amt) internal pure returns (uint256) {
-        return _amt * 5 / 10000;
+        return _amt * 5 / Constants.TOTAL_BPS;
     }
 
     function _makeRedemptionRequest(address _user, uint256 _share, address _vault) internal returns (uint256) {
@@ -106,5 +107,11 @@ contract TestUtils is Test {
         SparkleXVault(_vault).deposit(_generousAsset, _generousUser);
         vm.stopPrank();
         return _generousAsset;
+    }
+
+    function _changeWithdrawFee(address _vaultOwner, address _vault, uint256 _bps) internal {
+        vm.startPrank(_vaultOwner);
+        SparkleXVault(_vault).setWithdrawFeeRatio(_bps);
+        vm.stopPrank();
     }
 }

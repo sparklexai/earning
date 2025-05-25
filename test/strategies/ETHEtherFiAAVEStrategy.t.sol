@@ -39,6 +39,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleXVault", "SPXV");
         stkVOwner = stkVault.owner();
+        _changeWithdrawFee(stkVOwner, address(stkVault), 0);
 
         myStrategy = new ETHEtherFiAAVEStrategy(address(stkVault));
         strategist = myStrategy.strategist();
