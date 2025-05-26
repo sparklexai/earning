@@ -119,14 +119,14 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _claimRedemptionRequest(_user, _toRedeemShare);
     }
 
-    function test_Leverage_Collect_Everything() public {
+    function test_Leverage_Collect_Everything(uint256 _testVal) public {
         _fundFirstDepositGenerously(address(stkVault));
 
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _testVal = 100 ether;
+        _testVal = bound(_testVal, 2 ether, 100 ether);
         uint256 _share = stkVault.deposit(_testVal, _user);
         vm.stopPrank();
 
@@ -181,12 +181,12 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _claimRedemptionRequest(_user, _toRedeemShare);
     }
 
-    function test_Leverage_Collect_Portion() public {
+    function test_Leverage_Collect_Portion(uint256 _testVal) public {
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _testVal = 100 ether;
+        _testVal = bound(_testVal, 2 ether, 100 ether);
         uint256 _share = stkVault.deposit(_testVal, _user);
         vm.stopPrank();
 
@@ -251,13 +251,13 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _claimRedemptionRequest(_user, _toRedeemShare);
     }
 
-    function test_Basic_BatchRedemption() public {
+    function test_Basic_BatchRedemption(uint256 _testVal) public {
         address _user = TestUtils._getSugarUser();
         address _user2 = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _testVal = 100 ether;
+        _testVal = bound(_testVal, 2 ether, 100 ether);
         uint256 _share = stkVault.deposit(_testVal, _user);
         vm.stopPrank();
 
@@ -295,12 +295,12 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
     }
 
-    function test_Basic_Invest_Redeem() public {
+    function test_Basic_Invest_Redeem(uint256 _testVal) public {
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _testVal = 100 ether;
+        _testVal = bound(_testVal, 2 ether, 100 ether);
         uint256 _share = stkVault.deposit(_testVal, _user);
         vm.stopPrank();
 

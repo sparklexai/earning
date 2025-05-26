@@ -53,7 +53,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(wETHVal, _redeemed);
     }
 
-    function test_Withdraw_Fee() public {
+    function test_Withdraw_Fee(uint256 _feeBps) public {
         uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
 
         address _user = TestUtils._getSugarUser();
@@ -64,7 +64,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         uint256 _userShare = stkVault.balanceOf(_user);
 
-        uint256 _feeBps = 1000;
+        _feeBps = bound(_feeBps, 100, 1000);
         _changeWithdrawFee(stkVOwner, address(stkVault), _feeBps);
 
         address payable _feeRecipient = _getNextUserAddress();
@@ -82,7 +82,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(wETHVal * _feeBps / Constants.TOTAL_BPS, ERC20(wETH).balanceOf(_feeRecipient));
     }
 
-    function test_Basic_ManagementFee() public {
+    function test_Basic_ManagementFee(uint256 _feeBps) public {
         uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
 
         address _user = TestUtils._getSugarUser();
@@ -99,6 +99,12 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(wETHVal + _generousAsset, _totalAssets);
 
         // accumulate fee
+        _feeBps = bound(_feeBps, 100, 1000);
+        vm.startPrank(stkVOwner);
+        stkVault.setManagementFeeRatio(_feeBps);
+        vm.stopPrank();
+        assertEq(_feeBps, stkVault.MANAGEMENT_FEE_BPS());
+
         (,, uint256 _ts0) = stkVault.mgmtFee();
         uint256 _currentTime = block.timestamp;
         uint256 _timeElapsed = Constants.ONE_YEAR / 12;
