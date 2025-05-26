@@ -18,6 +18,11 @@ library Constants {
     uint256 constant TOTAL_BPS = 10000;
 
     /**
+     * @dev used as denominator for annual calculation.
+     */
+    uint256 constant ONE_YEAR = 365 days;
+
+    /**
      * @dev used as dummy dead address.
      */
     address constant ZRO_ADDR = address(0);

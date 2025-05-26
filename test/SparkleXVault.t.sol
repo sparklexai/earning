@@ -81,6 +81,47 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(wETHVal * _feeBps / Constants.TOTAL_BPS, ERC20(wETH).balanceOf(_feeRecipient));
     }
 
+    function test_Basic_ManagementFee() public {
+        uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
+
+        address _user = TestUtils._getSugarUser();
+
+        vm.startPrank(_user);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        uint256 _share = stkVault.deposit(wETHVal, _user);
+        vm.stopPrank();
+
+        uint256 _userShare = stkVault.balanceOf(_user);
+        assertEq(_share, _userShare);
+
+        uint256 _totalAssets = stkVault.totalAssets();
+        assertEq(wETHVal + _generousAsset, _totalAssets);
+
+        // accumulate fee
+        (,, uint256 _ts0) = stkVault.mgmtFee();
+        uint256 _currentTime = block.timestamp;
+        uint256 _timeElapsed = Constants.ONE_YEAR / 12;
+        uint256 _targetTime = _currentTime + _timeElapsed;
+        vm.warp(_targetTime);
+
+        vm.startPrank(stkVOwner);
+        stkVault.accumulateManagementFee();
+        vm.stopPrank();
+
+        (uint256 _fee, uint256 _supply, uint256 _ts) = stkVault.mgmtFee();
+        console.log("_fee:%d,_supply:%d,_ts:%d", _fee, _supply, _ts);
+        assertEq(_ts, _targetTime);
+        assertEq(_supply, _totalAssets);
+        assertTrue(
+            _assertApproximateEq(
+                _fee,
+                (_totalAssets * (_targetTime - _ts0) * stkVault.MANAGEMENT_FEE_BPS())
+                    / (Constants.TOTAL_BPS * Constants.ONE_YEAR),
+                COMP_TOLERANCE
+            )
+        );
+    }
+
     function test_Deposit_Inflation() public {
         address _user = TestUtils._getSugarUser();
         address _attacker = TestUtils._getSugarUser();
@@ -149,6 +190,8 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         assertEq(_alloc1, stkVault.strategyAllocations(address(myStrategy)));
 
+        assertEq(address(myStrategy), stkVault.allStrategies(0));
+
         // create the second strategy
         uint256 _alloc2 = 10;
         DummyStrategy myStrategy2 = new DummyStrategy(wETH, address(stkVault));
@@ -158,6 +201,8 @@ contract SparkleXVaultTest is TestUtils {
         stkVault.addStrategy(address(myStrategy2), _alloc2);
         vm.stopPrank();
         assertEq(_alloc2, stkVault.strategyAllocations(address(myStrategy2)));
+
+        assertEq(address(myStrategy2), stkVault.allStrategies(1));
 
         // remove the second strategy
         vm.startPrank(stkVOwner);

@@ -27,10 +27,18 @@ contract SparkleXVault is ERC4626, Ownable {
     ///////////////////////////////
     uint256 public EARN_RATIO_BPS = 9900;
     uint256 public WITHDRAW_FEE_BPS = 10;
+    uint256 public MANAGEMENT_FEE_BPS = 200;
     uint256 public strategiesAllocationSum;
+    ManagementFeeRecord public mgmtFee;
+
+    struct ManagementFeeRecord {
+        uint256 feesAccumulated;
+        uint256 lastUpdateTotalAssets;
+        uint256 lastUpdateTimestamp;
+    }
 
     mapping(address => uint256) public strategyAllocations;
-    address[MAX_ACTIVE_STRATEGY] allStrategies;
+    address[MAX_ACTIVE_STRATEGY] public allStrategies;
     address public _redemptionClaimer;
     address public _feeRecipient;
 
@@ -56,6 +64,8 @@ contract SparkleXVault is ERC4626, Ownable {
     event RedemptionClaimerChanged(address indexed _old, address indexed _new);
     event FeeRecipientChanged(address indexed _old, address indexed _new);
     event WithdrawFeeCharged(address indexed _withdrawer, address indexed _recipient, uint256 _fee);
+    event ManagementFeeUpdated(uint256 _addedFee, uint256 _newTotalAssets, uint256 _newTimestamp);
+    event ManagementFeeClaimed(address indexed _recipient, uint256 _fee);
 
     constructor(ERC20 _asset, string memory name_, string memory symbol_)
         ERC4626(_asset)
@@ -72,6 +82,14 @@ contract SparkleXVault is ERC4626, Ownable {
      */
     modifier onlyRedemptionClaimer() {
         require(msg.sender == _redemptionClaimer, "!not redemption claimer");
+        _;
+    }
+
+    /**
+     * @dev allow only called by owner or claimer.
+     */
+    modifier onlyRedemptionClaimerOrOwner() {
+        require(msg.sender == _redemptionClaimer || msg.sender == owner(), "!not owner nor claimer");
         _;
     }
 
@@ -121,6 +139,11 @@ contract SparkleXVault is ERC4626, Ownable {
         WITHDRAW_FEE_BPS = _ratio;
     }
 
+    function setManagementFeeRatio(uint256 _ratio) external onlyOwner {
+        require(_ratio >= 0 && _ratio < Constants.TOTAL_BPS, "invalid management fee ratio!");
+        MANAGEMENT_FEE_BPS = _ratio;
+    }
+
     function addStrategy(address _strategyAddr, uint256 _allocation) external onlyOwner {
         require(
             _strategyAddr != Constants.ZRO_ADDR && IStrategy(_strategyAddr).asset() == asset()
@@ -165,6 +188,38 @@ contract SparkleXVault is ERC4626, Ownable {
         }
         ERC20(asset()).approve(_strategyAddr, 0);
         emit StrategyRemoved(_strategyAddr);
+    }
+
+    function accumulateManagementFee() external onlyRedemptionClaimerOrOwner {
+        ManagementFeeRecord storage _feeRecord = mgmtFee;
+        uint256 currentTime = block.timestamp;
+        uint256 _recordedTime = _feeRecord.lastUpdateTimestamp;
+        uint256 currentTotalAssets = totalAssets();
+        uint256 newFee;
+        uint256 _timeElapsed = currentTime - _recordedTime;
+
+        uint256 recordedAssets = _feeRecord.lastUpdateTotalAssets;
+        uint256 assetsToCharge =
+            (currentTotalAssets > recordedAssets && recordedAssets > 0) ? recordedAssets : currentTotalAssets;
+        uint256 feesAnnualInTheory = assetsToCharge * MANAGEMENT_FEE_BPS / Constants.TOTAL_BPS;
+        newFee = feesAnnualInTheory > 0 ? (feesAnnualInTheory * _timeElapsed / Constants.ONE_YEAR) : 0;
+        _feeRecord.feesAccumulated += newFee;
+
+        _feeRecord.lastUpdateTotalAssets = currentTotalAssets;
+        _feeRecord.lastUpdateTimestamp = currentTime;
+
+        emit ManagementFeeUpdated(newFee, currentTotalAssets, currentTime);
+    }
+
+    function claimManagementFee() external onlyRedemptionClaimerOrOwner {
+        ManagementFeeRecord storage _feeRecord = mgmtFee;
+        uint256 _feeToClaim = _feeRecord.feesAccumulated;
+        require(_feeToClaim > 0, "!zero management fee to claim");
+
+        _feeRecord.feesAccumulated = 0;
+        SafeERC20.safeTransferFrom(ERC20(asset()), address(this), _feeRecipient, _feeToClaim);
+
+        emit ManagementFeeClaimed(_feeRecipient, _feeToClaim);
     }
 
     ///////////////////////////////
