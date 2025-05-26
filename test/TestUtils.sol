@@ -49,10 +49,16 @@ contract TestUtils is Test {
     }
 
     function _makeRedemptionRequest(address _user, uint256 _share, address _vault) internal returns (uint256) {
+        uint256 _ppsBefore = SparkleXVault(_vault).previewMint(10 ** SparkleXVault(_vault).decimals());
+
         vm.startPrank(_user);
         ERC20(_vault).approve(_vault, type(uint256).max);
         uint256 _asset = SparkleXVault(_vault).requestRedemption(_share);
         vm.stopPrank();
+
+        uint256 _ppsAfter = SparkleXVault(_vault).previewMint(10 ** SparkleXVault(_vault).decimals());
+        assertTrue(_assertApproximateEq(_ppsBefore, _ppsAfter, COMP_TOLERANCE));
+
         return _asset;
     }
 
@@ -113,5 +119,26 @@ contract TestUtils is Test {
         vm.startPrank(_vaultOwner);
         SparkleXVault(_vault).setWithdrawFeeRatio(_bps);
         vm.stopPrank();
+    }
+
+    function _checkBasicInvariants(address _vault) internal {
+        _checkConvertToSharesFull(_vault);
+        _checkConvertToAssetsFull(_vault);
+    }
+
+    function _checkConvertToSharesFull(address _vault) internal {
+        uint256 _supply = SparkleXVault(_vault).totalSupply();
+        uint256 _asset = SparkleXVault(_vault).totalAssets();
+        uint256 _supplyConverted = SparkleXVault(_vault).convertToShares(_asset);
+        console.log("_supply:%d,_supplyConverted:%d,_asset:%d", _supply, _supplyConverted, _asset);
+        assertTrue(_assertApproximateEq(_supply, _supplyConverted, BIGGER_TOLERANCE));
+    }
+
+    function _checkConvertToAssetsFull(address _vault) internal {
+        uint256 _supply = SparkleXVault(_vault).totalSupply();
+        uint256 _asset = SparkleXVault(_vault).totalAssets();
+        uint256 _assetConverted = SparkleXVault(_vault).convertToAssets(_supply);
+        console.log("_supply:%d,_asset:%d,_assetConverted:%d", _supply, _asset, _assetConverted);
+        assertTrue(_assertApproximateEq(_asset, _assetConverted, BIGGER_TOLERANCE));
     }
 }

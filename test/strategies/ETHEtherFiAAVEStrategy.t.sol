@@ -88,6 +88,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_wETHVal - _residue, _netSupply, BIGGER_TOLERANCE));
         assertEq(0, _debt);
 
+        _checkBasicInvariants(address(stkVault));
+
         uint256 _toRedeem = 100 * 1e18;
         uint256 _toRedeemShare = stkVault.convertToShares(_toRedeem);
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _toRedeemShare, address(stkVault));
@@ -111,6 +113,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         (uint256 _newNetSupply, uint256 _newDebt,) = myStrategy.getNetSupplyAndDebt(true);
         assertEq(0, _newDebt);
+
+        _checkBasicInvariants(address(stkVault));
 
         _claimRedemptionRequest(_user, _toRedeemShare);
     }
@@ -137,6 +141,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         uint256 _residue = ERC20(wETH).balanceOf(address(stkVault));
         assertTrue(_assertApproximateEq(_testVal, (_residue + _netSupply + _flashloanFee), BIGGER_TOLERANCE));
+
+        _checkBasicInvariants(address(stkVault));
 
         uint256 _toRedeemShare = _share;
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _toRedeemShare, address(stkVault));
@@ -169,6 +175,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 0);
+
+        _checkBasicInvariants(address(stkVault));
 
         _claimRedemptionRequest(_user, _toRedeemShare);
     }
@@ -264,6 +272,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.invest(_borrowedDebt / 3, _borrowedDebt);
         vm.stopPrank();
 
+        _checkBasicInvariants(address(stkVault));
+
         // multiple redemption from users
         uint256 _redemptionShare = (_share + _share2) / 5;
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _redemptionShare, address(stkVault));
@@ -281,6 +291,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _shares[0] = _redemptionShare;
         _shares[1] = _redemptionShare;
         TestUtils._batchClaimRedemptionRequest(stkVOwner, _users, _shares, address(stkVault), COMP_TOLERANCE);
+
+        _checkBasicInvariants(address(stkVault));
     }
 
     function test_Basic_Invest_Redeem() public {
@@ -304,6 +316,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), BIGGER_TOLERANCE));
         assertTrue(_assertApproximateEq(_initDebt + _flashloanFee, _debt, BIGGER_TOLERANCE));
         assertTrue(_assertApproximateEq(_totalSupply, (_initSupply + _initDebt), BIGGER_TOLERANCE));
+
+        _checkBasicInvariants(address(stkVault));
 
         uint256 _maxBorrow = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
         uint256 _toRedeem = IWeETH(weETH).getWeETHByeETH(_maxBorrow);
@@ -330,6 +344,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
         assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
+
+        _checkBasicInvariants(address(stkVault));
     }
 
     function _printAAVEPosition() internal view returns (uint256) {

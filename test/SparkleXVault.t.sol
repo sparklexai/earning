@@ -40,6 +40,7 @@ contract SparkleXVaultTest is TestUtils {
 
         uint256 _totalAssets = stkVault.totalAssets();
         assertEq(wETHVal + _generousAsset, _totalAssets);
+        _checkBasicInvariants(address(stkVault));
 
         uint256 _redeemed = TestUtils._makeRedemptionRequest(_user, _userShare, address(stkVault));
 
