@@ -16,6 +16,7 @@ import {IWithdrawRequestNFT} from "../../interfaces/etherfi/IWithdrawRequestNFT.
 import {IPool} from "../../interfaces/aave/IPool.sol";
 import {IAaveOracle} from "../../interfaces/aave/IAaveOracle.sol";
 import {TestUtils} from "../TestUtils.sol";
+import {Constants} from "../../src/utils/Constants.sol";
 
 // run this test with mainnet fork
 // forge test --fork-url <rpc_url> --match-path ETHEtherFiAAVEStrategyTest -vvv
@@ -43,6 +44,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         myStrategy = new ETHEtherFiAAVEStrategy(address(stkVault));
         strategist = myStrategy.strategist();
+        assertEq(address(stkVault), myStrategy.vault());
+        assertEq(stkVault.asset(), myStrategy.asset());
 
         swapper = new TokenSwapper();
         etherfiHelper = new EtherFiHelper();
@@ -124,11 +127,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         address _user = TestUtils._getSugarUser();
 
-        vm.startPrank(_user);
-        ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        _testVal = bound(_testVal, 2 ether, 100 ether);
-        uint256 _share = stkVault.deposit(_testVal, _user);
-        vm.stopPrank();
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
 
         vm.startPrank(strategist);
         myStrategy.allocate(type(uint256).max);
@@ -184,11 +185,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     function test_Leverage_Collect_Portion(uint256 _testVal) public {
         address _user = TestUtils._getSugarUser();
 
-        vm.startPrank(_user);
-        ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        _testVal = bound(_testVal, 2 ether, 100 ether);
-        uint256 _share = stkVault.deposit(_testVal, _user);
-        vm.stopPrank();
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
 
         vm.startPrank(strategist);
         myStrategy.allocate(type(uint256).max);
@@ -199,8 +198,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256 _totalAssets = stkVault.totalAssets();
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), BIGGER_TOLERANCE));
 
-        uint256 _residue = ERC20(wETH).balanceOf(address(stkVault));
-        assertTrue(_assertApproximateEq(_testVal, (_residue + _netSupply + _flashloanFee), BIGGER_TOLERANCE));
+        assertTrue(
+            _assertApproximateEq(
+                _testVal, (ERC20(wETH).balanceOf(address(stkVault)) + _netSupply + _flashloanFee), BIGGER_TOLERANCE
+            )
+        );
 
         uint256 _toRedeemShare = (_share * 3 / 10);
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _toRedeemShare, address(stkVault));
@@ -242,8 +244,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _claimWithdrawRequest(strategist, _activeWithdrawReqs[0][0]);
         _claimWithdrawRequest(strategist, _activeWithdrawReqs[1][0]);
 
-        _residue = ERC20(wETH).balanceOf(address(stkVault));
-        assertTrue(_residue >= (_portionVal + _portionVal2));
+        assertTrue(ERC20(wETH).balanceOf(address(stkVault)) >= (_portionVal + _portionVal2));
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 0);
@@ -255,21 +256,17 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user = TestUtils._getSugarUser();
         address _user2 = TestUtils._getSugarUser();
 
-        vm.startPrank(_user);
-        ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        _testVal = bound(_testVal, 2 ether, 100 ether);
-        uint256 _share = stkVault.deposit(_testVal, _user);
-        vm.stopPrank();
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
 
-        vm.startPrank(_user2);
-        ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _share2 = stkVault.deposit(_testVal, _user2);
-        vm.stopPrank();
+        (, uint256 _share2) = TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal, _testVal, _testVal);
 
         // around 83% of TVL is invested with 17% left in vault
         uint256 _borrowedDebt = _testVal * 5;
         vm.startPrank(strategist);
         myStrategy.invest(_borrowedDebt / 3, _borrowedDebt);
+        myStrategy.invest(BIGGER_TOLERANCE, 0);
         vm.stopPrank();
 
         _checkBasicInvariants(address(stkVault));
@@ -290,7 +287,14 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256[] memory _shares = new uint256[](2);
         _shares[0] = _redemptionShare;
         _shares[1] = _redemptionShare;
-        TestUtils._batchClaimRedemptionRequest(stkVOwner, _users, _shares, address(stkVault), COMP_TOLERANCE);
+
+        address _batchClaimer = TestUtils._getSugarUser();
+        vm.startPrank(stkVOwner);
+        stkVault.setRedemptionClaimer(_batchClaimer);
+        vm.stopPrank();
+        assertEq(stkVault._redemptionClaimer(), _batchClaimer);
+
+        TestUtils._batchClaimRedemptionRequest(_batchClaimer, _users, _shares, address(stkVault), COMP_TOLERANCE);
 
         _checkBasicInvariants(address(stkVault));
     }
@@ -298,11 +302,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     function test_Basic_Invest_Redeem(uint256 _testVal) public {
         address _user = TestUtils._getSugarUser();
 
-        vm.startPrank(_user);
-        ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        _testVal = bound(_testVal, 2 ether, 100 ether);
-        uint256 _share = stkVault.deposit(_testVal, _user);
-        vm.stopPrank();
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
 
         uint256 _initSupply = _testVal / 2;
         uint256 _initDebt = _initSupply * 9;
@@ -319,7 +321,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         _checkBasicInvariants(address(stkVault));
 
-        uint256 _maxBorrow = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
+        (uint256 _maxBorrow,) = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
         uint256 _toRedeem = IWeETH(weETH).getWeETHByeETH(_maxBorrow);
         vm.startPrank(strategist);
         myStrategy.redeem(_toRedeem);
@@ -346,6 +348,140 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
 
         _checkBasicInvariants(address(stkVault));
+    }
+
+    function test_Max_Redeem(uint256 _testVal) public {
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
+
+        uint256 _initSupply = _testVal / 2;
+        uint256 _initDebt = _initSupply * 9;
+        vm.startPrank(strategist);
+        myStrategy.invest(_initSupply, _initDebt);
+        vm.stopPrank();
+
+        _checkBasicInvariants(address(stkVault));
+        (, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
+
+        (uint256 _maxBorrow,) = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
+        uint256 _maxRedeemCount = etherfiHelper.MAX_ACTIVE_WITHDRAW();
+        uint256 _toRedeem = (IWeETH(weETH).getWeETHByeETH(_maxBorrow) / _maxRedeemCount) + 1;
+        vm.startPrank(strategist);
+        for (uint256 i = 0; i < _maxRedeemCount; i++) {
+            myStrategy.redeem(_toRedeem);
+        }
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.TOO_MANY_WITHDRAW_FOR_ETHERFI.selector);
+        vm.startPrank(strategist);
+        myStrategy.redeem(_toRedeem);
+        vm.stopPrank();
+
+        uint256[][] memory _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
+        assertEq(_activeWithdrawReqs.length, _maxRedeemCount);
+        assertTrue(_assertApproximateEq(_maxBorrow, myStrategy.assetsInCollection(), BIGGER_TOLERANCE));
+
+        uint256[] memory _reqIds = new uint256[](_maxRedeemCount);
+
+        for (uint256 i = 0; i < _maxRedeemCount; i++) {
+            _reqIds[i] = _activeWithdrawReqs[i][0];
+            _finalizeWithdrawRequest(_reqIds[i]);
+        }
+
+        vm.startPrank(strategist);
+        myStrategy.claimAndRepay(_reqIds, _maxBorrow);
+        vm.stopPrank();
+
+        _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
+        assertEq(_activeWithdrawReqs.length, 0);
+
+        (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
+        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
+
+        _checkBasicInvariants(address(stkVault));
+    }
+
+    function test_Multiple_Users(uint256 _testVal1, uint256 _testVal2, uint256 _testVal3) public {
+        address _user1 = TestUtils._getSugarUser();
+        address _user2 = TestUtils._getSugarUser();
+        address _user3 = TestUtils._getSugarUser();
+        uint256 _timeElapsed = Constants.ONE_YEAR / 12;
+
+        // deposit and make investment by looping into Ether.Fi and AAVE from user1
+        (uint256 _assetVal1, uint256 _share1) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user1, _testVal1, 2 ether, 20 ether);
+        _testVal1 = _assetVal1;
+        _makeLoopingInvestment(10);
+
+        // make some debt accured in AAVE and earn yield in Ether.Fi
+        uint256 _currentTime = block.timestamp;
+        vm.warp(_currentTime + _timeElapsed);
+
+        // deposit and make investment by looping into Ether.Fi and AAVE from user2
+        (uint256 _assetVal2, uint256 _share2) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal2, 2 ether, 20 ether);
+        _testVal2 = _assetVal2;
+        _makeLoopingInvestment(10);
+
+        _makeRedemptionByRedeemFromAAVE(
+            _user1, stkVault.previewDeposit(ERC20(wETH).balanceOf(address(stkVault)) + BIGGER_TOLERANCE)
+        );
+
+        // make some debt accured in AAVE and earn yield in Ether.Fi
+        _currentTime = block.timestamp;
+        vm.warp(_currentTime + _timeElapsed);
+
+        // deposit and make investment by looping into Ether.Fi and AAVE from user3
+        (uint256 _assetVal3, uint256 _share3) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user3, _testVal3, 2 ether, 20 ether);
+        _testVal3 = _assetVal3;
+        _makeLoopingInvestment(10);
+
+        _makeRedemptionByRedeemFromAAVE(
+            _user2, stkVault.previewDeposit(ERC20(wETH).balanceOf(address(stkVault)) + BIGGER_TOLERANCE)
+        );
+
+        // make some debt accured in AAVE and earn yield in Ether.Fi
+        _currentTime = block.timestamp;
+        vm.warp(_currentTime + _timeElapsed);
+
+        _makeRedemptionByRedeemFromAAVE(
+            _user3, stkVault.previewDeposit(ERC20(wETH).balanceOf(address(stkVault)) + BIGGER_TOLERANCE)
+        );
+
+        // make some debt accured in AAVE and earn yield in Ether.Fi
+        _currentTime = block.timestamp;
+        vm.warp(_currentTime + _timeElapsed);
+
+        // sugardaddy strategy to mock EtherFi yield
+        uint256 _totalAssets = stkVault.totalAssets();
+        (, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
+        uint256 _flashloanFee = TestUtils._applyFlashLoanFeeFromAAVE(_debt);
+
+        // collect all from this strategy
+        vm.deal(address(myStrategy), _totalAssets * 500 / Constants.TOTAL_BPS);
+        vm.startPrank(strategist);
+        myStrategy.collectAll();
+        vm.stopPrank();
+
+        uint256[][] memory _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
+        assertEq(_activeWithdrawReqs.length, 1);
+
+        _finalizeWithdrawRequest(_activeWithdrawReqs[0][0]);
+        _claimWithdrawRequest(strategist, _activeWithdrawReqs[0][0]);
+
+        assertEq(0, myStrategy.assetsInCollection());
+        uint256 _totalAssetsAfter = stkVault.totalAssets();
+        assertTrue(
+            _assertApproximateEq(
+                _totalAssets,
+                (_totalAssetsAfter + _flashloanFee + _activeWithdrawReqs[0][2] + _activeWithdrawReqs[0][3]),
+                BIGGER_TOLERANCE
+            )
+        );
     }
 
     function _printAAVEPosition() internal view returns (uint256) {
@@ -382,5 +518,23 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
     function _claimRedemptionRequest(address _user, uint256 _share) internal returns (uint256 _actualRedeemed) {
         _actualRedeemed = TestUtils._claimRedemptionRequest(_user, _share, address(stkVault), COMP_TOLERANCE);
+    }
+
+    function _makeRedemptionByRedeemFromAAVE(address _user, uint256 _share) internal {
+        uint256 _redemptionShare = _share;
+        uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _redemptionShare, address(stkVault));
+        vm.startPrank(strategist);
+        myStrategy.invest(0, _redemptionShare);
+        vm.stopPrank();
+        TestUtils._claimRedemptionRequest(_user, _redemptionShare, address(stkVault), COMP_TOLERANCE);
+    }
+
+    function _makeLoopingInvestment(uint256 _leverage) internal {
+        uint256 _availableAsset = stkVault.getAllocationAvailable();
+        uint256 _borrowedDebt = _availableAsset * _leverage;
+        vm.startPrank(strategist);
+        myStrategy.invest(_availableAsset, _borrowedDebt);
+        vm.stopPrank();
+        _checkBasicInvariants(address(stkVault));
     }
 }

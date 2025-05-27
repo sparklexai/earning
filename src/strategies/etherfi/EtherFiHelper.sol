@@ -18,7 +18,7 @@ contract EtherFiHelper is IERC721Receiver {
     ///////////////////////////////
     // constants
     ///////////////////////////////
-    uint8 constant MAX_ACTIVE_WITHDRAW = 30;
+    uint8 public constant MAX_ACTIVE_WITHDRAW = 30;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -92,7 +92,9 @@ contract EtherFiHelper is IERC721Receiver {
      * @dev make a withdraw request to ether.fi with given weETH amount and record any swap loss during flashloan to prepare this request.
      */
     function requestWithdrawFromEtherFi(uint256 _toWithdrawWeETH, uint256 _swapLoss) external returns (uint256) {
-        require(activeWithdrawRequests < MAX_ACTIVE_WITHDRAW, "too many withdraw requests for EtherFi!");
+        if (activeWithdrawRequests >= MAX_ACTIVE_WITHDRAW) {
+            revert Constants.TOO_MANY_WITHDRAW_FOR_ETHERFI();
+        }
 
         ERC20(address(weETH)).transferFrom(msg.sender, address(this), _toWithdrawWeETH);
         uint256 _toWithdraw = weETH.unwrap(_toWithdrawWeETH);

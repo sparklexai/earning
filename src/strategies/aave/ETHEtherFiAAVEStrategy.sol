@@ -94,12 +94,12 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     }
 
     function redeem(uint256 _supplyAmount) external override onlyStrategist returns (uint256) {
-        uint256 _margin = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
+        (uint256 _margin, uint256 _debtInBorrow) = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
 
         if (_margin == 0) {
             return _margin;
         } else {
-            _margin = _convertBorrowToSupply(_margin);
+            _margin = _debtInBorrow > 0 ? _convertBorrowToSupply(_margin) : _supplyAmount;
         }
 
         _supplyAmount = _supplyAmount > _margin ? _margin : _supplyAmount;

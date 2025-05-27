@@ -141,4 +141,16 @@ contract TestUtils is Test {
         console.log("_supply:%d,_asset:%d,_assetConverted:%d", _supply, _asset, _assetConverted);
         assertTrue(_assertApproximateEq(_asset, _assetConverted, BIGGER_TOLERANCE));
     }
+
+    function _makeVaultDeposit(address _vault, address _user, uint256 _amount, uint256 _low, uint256 _high)
+        internal
+        returns (uint256, uint256)
+    {
+        uint256 _assetAmount = bound(_amount, _low, _high);
+        vm.startPrank(_user);
+        ERC20(SparkleXVault(_vault).asset()).approve(_vault, type(uint256).max);
+        uint256 _share = SparkleXVault(_vault).deposit(_assetAmount, _user);
+        vm.stopPrank();
+        return (_assetAmount, _share);
+    }
 }

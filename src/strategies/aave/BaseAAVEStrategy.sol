@@ -77,7 +77,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function _borrowFromAAVE(uint256 _toBorrow) internal returns (uint256) {
-        uint256 _availableToBorrow = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
+        (uint256 _availableToBorrow,) = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
         require(_availableToBorrow >= _toBorrow, "borrow too much in AAVE!");
         return AAVEHelper(_aaveHelper).borrowFromAAVE(_toBorrow);
     }

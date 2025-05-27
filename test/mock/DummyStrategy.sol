@@ -8,9 +8,9 @@ contract DummyStrategy {
     address _vault;
     address _strategist;
 
-    constructor(address asset, address vault) {
-        _asset = asset;
-        _vault = vault;
+    constructor(address assetAddr, address vaultAddr) {
+        _asset = assetAddr;
+        _vault = vaultAddr;
     }
 
     function setTotalAssets(uint256 amount) external {
@@ -21,8 +21,8 @@ contract DummyStrategy {
         _assetsInCollection = amount;
     }
 
-    function setStrategist(address strategist) external {
-        _strategist = strategist;
+    function setStrategist(address strategistAddr) external {
+        _strategist = strategistAddr;
     }
 
     function asset() external view returns (address assetTokenAddress) {

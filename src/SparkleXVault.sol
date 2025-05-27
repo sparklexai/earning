@@ -172,7 +172,9 @@ contract SparkleXVault is ERC4626, Ownable {
         uint256 _strategyAlloc = strategyAllocations[_strategyAddr];
         require(_strategyAlloc > 0 && IStrategy(_strategyAddr).vault() == address(this), "!invalid strategy to remove");
 
-        require(IStrategy(_strategyAddr).assetsInCollection() == 0, "!pending collection still in strategy");
+        if (IStrategy(_strategyAddr).assetsInCollection() > 0) {
+            revert Constants.STRATEGY_COLLECTION_IN_PROCESS();
+        }
         IStrategy(_strategyAddr).collectAll();
 
         strategiesAllocationSum = strategiesAllocationSum - _strategyAlloc;

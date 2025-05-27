@@ -38,4 +38,10 @@ library Constants {
             return 0;
         }
     }
+
+    // errors in vault
+    error STRATEGY_COLLECTION_IN_PROCESS();
+
+    // errors in EtherFi related strategy
+    error TOO_MANY_WITHDRAW_FOR_ETHERFI();
 }

@@ -162,15 +162,20 @@ contract AAVEHelper {
     /**
      * @dev Return available borrow token amount in its own denominations
      */
-    function getAvailableBorrowAmount(address _position) public view returns (uint256) {
-        (,, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(_position);
+    function getAvailableBorrowAmount(address _position) public view returns (uint256, uint256) {
+        (, uint256 totalDebtBase, uint256 availableBorrowsBase,,,) = aavePool.getUserAccountData(_position);
 
         uint256 _availableToBorrow = availableBorrowsBase > 0
             ? convertFromBaseAmount(
                 address(_borrowToken), availableBorrowsBase, Constants.convertDecimalToUnit(_borrowToken.decimals())
             )
             : 0;
-        return _availableToBorrow;
+        uint256 _debtInBorrow = totalDebtBase > 0
+            ? convertFromBaseAmount(
+                address(_borrowToken), totalDebtBase, Constants.convertDecimalToUnit(_borrowToken.decimals())
+            )
+            : 0;
+        return (_availableToBorrow, _debtInBorrow);
     }
 
     /**
