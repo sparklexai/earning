@@ -1,1 +1,2 @@
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@pendle/contracts/=lib/pendle-core-v2-public/contracts/
