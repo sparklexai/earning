@@ -6,17 +6,17 @@ import {ICurveRouter} from "../../interfaces/curve/ICurveRouter.sol";
 import {ICurvePool} from "../../interfaces/curve/ICurvePool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Constants} from "./Constants.sol";
-import {IPSwapAggregator} from "@pendle/contracts/router/swap-aggregator/IPSwapAggregator.sol";
-import "@pendle/contracts/interfaces/IPAllActionTypeV3.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 contract TokenSwapper {
     using Math for uint256;
+    using Address for address;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
     ICurveRouter curveRouter = ICurveRouter(0x16C6521Dff6baB339122a0FE25a9116693265353);
-    address pendleAggregator = 0xd4e9B0d466789d7F6201442eecCBA6a75A552db0;
+    address pendleRouteV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
 
     ///////////////////////////////
     // events
@@ -124,24 +124,24 @@ contract TokenSwapper {
     ///////////////////////////////
     // Pendle swap related
     // check https://docs.pendle.finance/Developers/Contracts/PendleRouter#important-structs-in-pendlerouter
-    // better to have off-chain to supply parameter via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
+    // MUST have off-chain to supply parameter via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
+    // Ensure the receiver of the swap is the calling strategy
     ///////////////////////////////
-
-    function createPendleTokenInput(
-        address _tokenIn,
-        uint256 _netTokenIn,
-        address _tokenMintSy,
-        SwapType _swapType,
-        address _router,
-        bytes calldata _calldata
-    ) external view returns (TokenInput memory) {
-        SwapData memory _extraData = SwapData(_swapType, _router, _calldata, false);
-        return TokenInput({
-            tokenIn: _tokenIn,
-            netTokenIn: _netTokenIn,
-            tokenMintSy: _tokenMintSy,
-            pendleSwap: pendleAggregator,
-            swapData: _extraData
-        });
+    function swapWithPendleRouter(
+        address _inputToken,
+        address _outputToken,
+        uint256 _inAmount,
+        uint256 _minOut,
+        bytes calldata _swapCallData
+    ) external returns (uint256) {
+        ERC20(_inputToken).transferFrom(msg.sender, address(this), _inAmount);
+        _approveTokenToDex(_inputToken, pendleRouteV4);
+        uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(msg.sender);
+        address(pendleRouteV4).functionCall(_swapCallData);
+        uint256 _actualOut = ERC20(_outputToken).balanceOf(msg.sender) - _outputBalBefore;
+        if (_actualOut < _minOut) {
+            revert Constants.SWAP_OUT_TOO_SMALL();
+        }
+        return _actualOut;
     }
 }

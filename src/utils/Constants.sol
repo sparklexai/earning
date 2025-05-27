@@ -39,8 +39,9 @@ library Constants {
         }
     }
 
-    // errors in vault
+    // errors in vault & common to strategies
     error STRATEGY_COLLECTION_IN_PROCESS();
+    error SWAP_OUT_TOO_SMALL();
 
     // errors in EtherFi related strategy
     error TOO_MANY_WITHDRAW_FOR_ETHERFI();
