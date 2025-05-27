@@ -6,6 +6,8 @@ import {ICurveRouter} from "../../interfaces/curve/ICurveRouter.sol";
 import {ICurvePool} from "../../interfaces/curve/ICurvePool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Constants} from "./Constants.sol";
+import {IPSwapAggregator} from "@pendle/contracts/router/swap-aggregator/IPSwapAggregator.sol";
+import "@pendle/contracts/interfaces/IPAllActionTypeV3.sol";
 
 contract TokenSwapper {
     using Math for uint256;
@@ -14,6 +16,7 @@ contract TokenSwapper {
     // integrations - Ethereum mainnet
     ///////////////////////////////
     ICurveRouter curveRouter = ICurveRouter(0x16C6521Dff6baB339122a0FE25a9116693265353);
+    address pendleAggregator = 0xd4e9B0d466789d7F6201442eecCBA6a75A552db0;
 
     ///////////////////////////////
     // events
@@ -116,5 +119,29 @@ contract TokenSwapper {
         address[5] memory _dummy_pools =
             [Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
         return curveRouter.get_dx(_route, _params, _minOut, _pools, _dummy_pools, _dummy_pools);
+    }
+
+    ///////////////////////////////
+    // Pendle swap related
+    // check https://docs.pendle.finance/Developers/Contracts/PendleRouter#important-structs-in-pendlerouter
+    // better to have off-chain to supply parameter via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
+    ///////////////////////////////
+
+    function createPendleTokenInput(
+        address _tokenIn,
+        uint256 _netTokenIn,
+        address _tokenMintSy,
+        SwapType _swapType,
+        address _router,
+        bytes calldata _calldata
+    ) external view returns (TokenInput memory) {
+        SwapData memory _extraData = SwapData(_swapType, _router, _calldata, false);
+        return TokenInput({
+            tokenIn: _tokenIn,
+            netTokenIn: _netTokenIn,
+            tokenMintSy: _tokenMintSy,
+            pendleSwap: pendleAggregator,
+            swapData: _extraData
+        });
     }
 }
