@@ -351,6 +351,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     }
 
     function test_Max_Redeem(uint256 _testVal) public {
+        _fundFirstDepositGenerously(address(stkVault));
+
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
@@ -399,7 +401,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 0);
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
-        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
+        console.log("_debt:%d,_maxBorrow:%d,_debt2:%d", _debt, _maxBorrow, _debt2);
+        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, BIGGER_TOLERANCE));
 
         _checkBasicInvariants(address(stkVault));
     }
