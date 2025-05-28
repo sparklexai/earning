@@ -72,7 +72,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return EtherFiHelper(_etherfiHelper).requestWithdrawFromEtherFi(_toWithdrawWeETH, _swapLoss);
     }
 
-    function claimWithdrawFromEtherFi(uint256 _reqID) external returns (uint256) {
+    function claimWithdrawFromEtherFi(uint256 _reqID) external onlyStrategist returns (uint256) {
         uint256 _claimed = EtherFiHelper(_etherfiHelper).claimWithdrawFromEtherFi(_reqID);
         _returnAssetToVault(_claimed);
         return _claimed;
