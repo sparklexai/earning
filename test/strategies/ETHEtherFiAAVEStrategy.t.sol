@@ -17,6 +17,7 @@ import {IPool} from "../../interfaces/aave/IPool.sol";
 import {IAaveOracle} from "../../interfaces/aave/IAaveOracle.sol";
 import {TestUtils} from "../TestUtils.sol";
 import {Constants} from "../../src/utils/Constants.sol";
+import {DummyRewardDistributor} from "../mock/DummyRewardDistributor.sol";
 
 // run this test with mainnet fork
 // forge test --fork-url <rpc_url> --match-path ETHEtherFiAAVEStrategyTest -vvv
@@ -28,6 +29,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     EtherFiHelper public etherfiHelper;
     address public stkVOwner;
     address public strategist;
+    address public aaveHelperOwner;
 
     address weETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     ILiquidityPool etherfiLP = ILiquidityPool(0x308861A430be4cce5502d0A12724771Fc6DaF216);
@@ -36,6 +38,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
     address constant withdrawNFTAdmin = 0x0EF8fa4760Db8f5Cd4d993f3e3416f30f942D705;
     ERC20 aWeETH = ERC20(0xBdfa7b7893081B35Fb54027489e2Bc7A38275129);
+
+    // events to check
+    event DummyRewardClaimed(uint256 index, address account, uint256 amount);
 
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleXVault", "SPXV");
@@ -50,6 +55,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         swapper = new TokenSwapper();
         etherfiHelper = new EtherFiHelper();
         aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), aWeETH, 1);
+        aaveHelperOwner = aaveHelper.owner();
 
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), 100);
@@ -78,8 +84,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
 
         // now test yield without leverage
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setLeverageRatio(0);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
-        myStrategy.setLeverageRatio(0);
         myStrategy.allocate(type(uint256).max);
         vm.stopPrank();
 
@@ -485,6 +494,23 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
                 BIGGER_TOLERANCE
             )
         );
+    }
+
+    function test_Call_Distributor(uint256 _index, uint256 _amount, bytes32 _merkleProof) public {
+        DummyRewardDistributor rewardDistributor = new DummyRewardDistributor();
+
+        bytes32[] memory _merkleProofs = new bytes32[](1);
+        _merkleProofs[0] = _merkleProof;
+
+        bytes memory _callData =
+            rewardDistributor.generateClaimCallData(_index, address(myStrategy), _amount, _merkleProofs);
+
+        vm.expectEmit();
+        emit DummyRewardClaimed(_index, address(myStrategy), _amount);
+
+        vm.startPrank(myStrategy.owner());
+        myStrategy.manageCall(address(rewardDistributor), _callData, 0);
+        vm.stopPrank();
     }
 
     function _printAAVEPosition() internal view returns (uint256) {

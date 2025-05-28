@@ -7,10 +7,16 @@ import {ICurvePool} from "../../interfaces/curve/ICurvePool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Constants} from "./Constants.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract TokenSwapper {
+contract TokenSwapper is Ownable {
     using Math for uint256;
     using Address for address;
+
+    ///////////////////////////////
+    // member storage
+    ///////////////////////////////
+    uint256 SWAP_SLIPPAGE_BPS = 9960;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -23,12 +29,19 @@ contract TokenSwapper {
     ///////////////////////////////
     event SwapInCurve(address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out);
 
-    constructor() {}
+    constructor() Ownable(msg.sender) {}
 
     function _approveTokenToDex(address _token, address _dex) internal {
         if (ERC20(_token).allowance(address(this), _dex) == 0) {
             ERC20(_token).approve(_dex, type(uint256).max);
         }
+    }
+
+    function setSlippage(uint256 _slippage) external onlyOwner {
+        if (_slippage == 0 || _slippage >= Constants.TOTAL_BPS) {
+            revert Constants.INVALID_BPS_TO_SET();
+        }
+        SWAP_SLIPPAGE_BPS = _slippage;
     }
 
     ///////////////////////////////
@@ -44,8 +57,7 @@ contract TokenSwapper {
         address outToken,
         address singlePool,
         uint256 _inAmount,
-        uint256 _minOut,
-        uint256 _slippageAllowed
+        uint256 _minOut
     ) external returns (uint256) {
         address[11] memory _route = [
             inToken,
@@ -75,7 +87,7 @@ contract TokenSwapper {
 
         uint256 _dy = _minOut;
         if (_dy == 0) {
-            _dy = curveRouter.get_dy(_route, _params, _inAmount, _pools) * _slippageAllowed / Constants.TOTAL_BPS;
+            _dy = curveRouter.get_dy(_route, _params, _inAmount, _pools) * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS;
         }
 
         ERC20(inToken).transferFrom(msg.sender, address(this), _inAmount);
@@ -83,6 +95,10 @@ contract TokenSwapper {
         uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _dy, _pools, msg.sender);
         emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
         return _out;
+    }
+
+    function applySlippageMargin(uint256 _theory) public view returns (uint256) {
+        return _theory * Constants.TOTAL_BPS / SWAP_SLIPPAGE_BPS;
     }
 
     function _getCurvePoolIndex(address _twoTokenPool, address _token) internal view returns (uint256) {

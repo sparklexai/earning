@@ -54,6 +54,8 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         require(_newHelper != Constants.ZRO_ADDR, "!invalid etherfi helper");
         emit EtherFiHelperChanged(_etherfiHelper, _newHelper);
         _etherfiHelper = payable(_newHelper);
+        _approveToken(wETH, _etherfiHelper);
+        _approveToken(address(weETH), _etherfiHelper);
     }
 
     ///////////////////////////////
@@ -62,13 +64,11 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
 
     function _depositToEtherFi(uint256 _toDeposit) internal returns (uint256) {
         _toDeposit = _capAmountByBalance(ERC20(wETH), _toDeposit, false);
-        _approveToken(wETH, _etherfiHelper);
         return EtherFiHelper(_etherfiHelper).depositToEtherFi(_toDeposit);
     }
 
     function _requestWithdrawFromEtherFi(uint256 _toWithdrawWeETH, uint256 _swapLoss) internal returns (uint256) {
         _toWithdrawWeETH = _capAmountByBalance(ERC20(address(weETH)), _toWithdrawWeETH, false);
-        _approveToken(address(weETH), _etherfiHelper);
         return EtherFiHelper(_etherfiHelper).requestWithdrawFromEtherFi(_toWithdrawWeETH, _swapLoss);
     }
 
@@ -116,9 +116,11 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
 
         (uint256 _netSupply,,) = getNetSupplyAndDebt(false);
         uint256 _initSupply = _supplyToken.balanceOf(address(this)) + _netSupply;
-        require(_initSupply > 0, "!zero supply amount to leverage in AAVE");
+        if (_initSupply == 0) {
+            revert Constants.ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
+        }
 
-        uint256 _safeLeveraged = getSafeLeveragedSupply(_initSupply);
+        uint256 _safeLeveraged = AAVEHelper(_aaveHelper).getSafeLeveragedSupply(_initSupply);
         uint256 _toBorrow = _safeLeveraged == _initSupply ? 0 : _convertSupplyToBorrow(_safeLeveraged - _initSupply);
         _toBorrow = _toBorrow > _borrowAmount ? _borrowAmount : _toBorrow;
 
@@ -141,7 +143,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             return;
         }
 
-        if (LEVERAGE_RATIO_BPS > 0) {
+        if (AAVEHelper(_aaveHelper).LEVERAGE_RATIO_BPS() > 0) {
             _leveragePosition(amount, type(uint256).max);
         } else {
             _prepareSupplyFromAsset(amount);
@@ -185,13 +187,13 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
 
         // simply create withdraw request within ether.fi if no need to interact with AAVE
         if (_supplyRequired <= _supplyResidue || _netSupplyAsset == 0) {
-            _requestWithdrawFromEtherFi(_applySlippageMargin(_supplyRequired), 0);
+            _requestWithdrawFromEtherFi(TokenSwapper(_swapper).applySlippageMargin(_supplyRequired), 0);
             return;
         }
 
         // withdraw supply from AAVE if no debt taken, i.e., no leverage
         if (_debtAsset == 0) {
-            _withdrawCollateralFromAAVE(_applySlippageMargin(_supplyRequired));
+            _withdrawCollateralFromAAVE(TokenSwapper(_swapper).applySlippageMargin(_supplyRequired));
             _requestWithdrawFromEtherFi(_supplyToken.balanceOf(address(this)), 0);
             return;
         }
@@ -207,7 +209,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         assets[0] = address(_borrowToken);
         interestRateModes[0] = 0;
 
-        if (_expectedAsset > 0 && _expectedAsset < _applyLeverageMargin(_netSupplyAsset)) {
+        if (_expectedAsset > 0 && _expectedAsset < AAVEHelper(_aaveHelper).applyLeverageMargin(_netSupplyAsset)) {
             // deleverage a portion if possible
             amounts[0] = AAVEHelper(_aaveHelper).getMaxLeverage(_expectedAsset);
             aavePool.flashLoan(
@@ -215,7 +217,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             );
         } else {
             // deleverage everything
-            amounts[0] = _applySlippageMargin(_debtAsset);
+            amounts[0] = TokenSwapper(_swapper).applySlippageMargin(_debtAsset);
             aavePool.flashLoan(
                 address(this), assets, amounts, interestRateModes, address(this), abi.encode(false, 0), 0
             );
@@ -226,8 +228,6 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     // strategy customized methods
     ///////////////////////////////
     function totalAssets() public view override returns (uint256) {
-        uint256 _residue = _asset.balanceOf(address(this));
-
         // Check how much we can claim from ether.fi
         uint256 _weETHBalance = ERC20(address(weETH)).balanceOf(address(this));
         uint256 _claimable = etherfiLP.getTotalEtherClaimOf(address(this)) + weETH.getEETHByWeETH(_weETHBalance);
@@ -236,7 +236,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         // Check supply in AAVE if any
         (uint256 _netSupply,,) = getNetSupplyAndDebt(true);
 
-        return _residue + _claimable + _toWithdraw + _netSupply;
+        return _asset.balanceOf(address(this)) + _claimable + _toWithdraw + _netSupply;
     }
 
     function assetsInCollection() public view override returns (uint256) {
@@ -262,11 +262,11 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     }
 
     function _convertBorrowToSupply(uint256 _borrowAmount) internal view override returns (uint256) {
-        return weETH.getWeETHByeETH(_borrowAmount);
+        return _convertAssetToSupply(_borrowAmount);
     }
 
     function _convertSupplyToBorrow(uint256 _supplyAmount) internal view override returns (uint256) {
-        return weETH.getEETHByWeETH(_supplyAmount);
+        return _convertSupplyToAsset(_supplyAmount);
     }
 
     ///////////////////////////////
@@ -282,12 +282,21 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     ) external returns (bool) {
         uint256 amount = amounts[0];
 
-        require(msg.sender == address(aavePool), "wrong flashloan caller!");
-        require(initiator == address(this), "wrong flashloan initiator!");
-        require(assets[0] == address(_borrowToken), "wrong flashloan asset!");
-        require(amount > premiums[0], "invalid flashloan premium!");
-
-        require(_borrowToken.balanceOf(address(this)) >= amount, "wrong flashloan amount!");
+        if (msg.sender != address(aavePool)) {
+            revert Constants.WRONG_AAVE_FLASHLOAN_CALLER();
+        }
+        if (initiator != address(this)) {
+            revert Constants.WRONG_AAVE_FLASHLOAN_INITIATOR();
+        }
+        if (assets[0] != address(_borrowToken)) {
+            revert Constants.WRONG_AAVE_FLASHLOAN_ASSET();
+        }
+        if (amount <= premiums[0]) {
+            revert Constants.WRONG_AAVE_FLASHLOAN_PREMIUM();
+        }
+        if (_borrowToken.balanceOf(address(this)) < amount) {
+            revert Constants.WRONG_AAVE_FLASHLOAN_AMOUNT();
+        }
 
         (bool _lev, uint256 _expected) = abi.decode(params, (bool, uint256));
         uint256 _toRepay = amount + premiums[0];
@@ -301,7 +310,9 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             _borrowFromAAVE(_toRepay);
 
             uint256 _borrowResidue = _borrowToken.balanceOf(address(this));
-            require(_borrowResidue >= _toRepay, "can't repay flashloan during leverage!");
+            if (_borrowResidue < _toRepay) {
+                revert Constants.FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();
+            }
             _borrowResidue = _borrowResidue > _toRepay ? (_borrowResidue - _toRepay) : 0;
 
             // return any remaining to vault
@@ -329,7 +340,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             );
             uint256 _cappedIn = _capAmountByBalance(_supplyToken, _expectedIn, true);
             uint256 _actualOut = TokenSwapper(_swapper).swapInCurveTwoTokenPool(
-                address(_supplyToken), address(_borrowToken), weETHPool, _cappedIn, _toRepay, SWAP_SLIPPAGE_BPS
+                address(_supplyToken), address(_borrowToken), weETHPool, _cappedIn, _toRepay
             );
 
             uint256 _bestInTheory = _convertSupplyToAsset(_cappedIn);
@@ -337,7 +348,9 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
                 _supplyToken.balanceOf(address(this)), (_bestInTheory > _actualOut ? _bestInTheory - _actualOut : 0)
             );
 
-            require(_borrowToken.balanceOf(address(this)) >= _toRepay, "can't repay flashloan!");
+            if (_borrowToken.balanceOf(address(this)) < _toRepay) {
+                revert Constants.FAIL_TO_REPAY_FLASHLOAN_DELEVERAGE();
+            }
         }
 
         return true;

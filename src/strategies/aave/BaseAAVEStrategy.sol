@@ -26,11 +26,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     ERC20 public immutable _supplyAToken;
     address public _aaveHelper;
 
-    /**
-     * @dev leverage ratio in AAVE with looping supply and borrow.
-     */
-    uint256 LEVERAGE_RATIO_BPS = 9500;
-
     ///////////////////////////////
     // events
     ///////////////////////////////
@@ -40,6 +35,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     event MakeInvest(address indexed _caller, uint256 _borrowAmount, uint256 _assetAmount);
     event DebtDelegateToAAVEHelper(address indexed _strategy, address indexed _helper);
     event AAVEHelperChanged(address indexed _old, address indexed _new);
+    event WithdrawFromAAVE(address indexed _caller, uint256 _withdrawn, uint256 _health);
 
     constructor(ERC20 token, address vault, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken)
         BaseSparkleXStrategy(token, vault)
@@ -51,11 +47,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         emit BaseAAVEStrategyCreated(address(supplyToken), address(borrowToken), address(supplyAToken));
     }
 
-    function setLeverageRatio(uint256 _ratio) external onlyStrategist {
-        require(_ratio >= 0 && _ratio <= Constants.TOTAL_BPS, "invalid leverage ratio!");
-        LEVERAGE_RATIO_BPS = _ratio;
-    }
-
     function setAAVEHelper(address _newHelper) external onlyStrategist {
         require(
             _newHelper != Constants.ZRO_ADDR && AAVEHelper(_newHelper)._strategy() == address(this),
@@ -64,6 +55,9 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         emit AAVEHelperChanged(_aaveHelper, _newHelper);
         _aaveHelper = _newHelper;
         _delegateCreditToHelper();
+        _approveToken(address(_supplyToken), _aaveHelper);
+        _approveToken(address(_borrowToken), _aaveHelper);
+        _approveToken(address(_supplyAToken), _aaveHelper);
     }
 
     ///////////////////////////////
@@ -72,7 +66,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
 
     function _supplyToAAVE(uint256 _supplyAmount) internal {
         _supplyAmount = _capAmountByBalance(_supplyToken, _supplyAmount, false);
-        _approveToken(address(_supplyToken), _aaveHelper);
         AAVEHelper(_aaveHelper).supplyToAAVE(_supplyAmount);
     }
 
@@ -84,19 +77,22 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
 
     function _repayDebtToAAVE(uint256 _debtToRepay) internal {
         _debtToRepay = _capAmountByBalance(_borrowToken, _debtToRepay, false);
-        _approveToken(address(_borrowToken), _aaveHelper);
         AAVEHelper(_aaveHelper).repayDebtToAAVE(_debtToRepay);
     }
 
     function _withdrawCollateralFromAAVE(uint256 _toWithdraw) internal returns (uint256) {
-        _approveToken(address(_supplyAToken), _aaveHelper);
-
         (uint256 _netSupply,,) = getNetSupplyAndDebt(false);
         if (_toWithdraw > _netSupply) {
             _toWithdraw = _netSupply;
         }
+        return _withdrawCollateralFromAAVEDirectly(_toWithdraw);
+    }
 
-        return AAVEHelper(_aaveHelper).withdrawCollateralFromAAVE(_toWithdraw);
+    function _withdrawCollateralFromAAVEDirectly(uint256 _toWithdraw) internal returns (uint256) {
+        uint256 _withdrawn = aavePool.withdraw(address(_supplyToken), _toWithdraw, address(this));
+        (,,,,, uint256 newHealthFactor) = aavePool.getUserAccountData(address(this));
+        emit WithdrawFromAAVE(msg.sender, _withdrawn, newHealthFactor);
+        return _withdrawn;
     }
 
     /**
@@ -110,14 +106,12 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         require(_borrowAmount > 0 || _assetAmount > 0, "!invalid invest amounts to AAVE");
 
         if (_borrowAmount == 0) {
-            uint256 _supplyAmount = _prepareSupplyFromAsset(_assetAmount);
-            _supplyToAAVE(_supplyAmount);
+            _supplyToAAVE(_prepareSupplyFromAsset(_assetAmount));
         } else {
             if (_assetAmount > 0) {
                 _leveragePosition(_assetAmount, _borrowAmount);
             } else {
-                uint256 _borrowed = _borrowFromAAVE(_borrowAmount);
-                _returnAssetToVault(_borrowed);
+                _returnAssetToVault(_borrowFromAAVE(_borrowAmount));
             }
         }
         emit MakeInvest(msg.sender, _borrowAmount, _assetAmount);
@@ -204,16 +198,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
             _totalSupply = totalCollateralBase > 0 ? _cAmount : 0;
             _netSupply = totalCollateralBase > 0 ? _cAmount - _debt : 0;
         }
-    }
-
-    function _applyLeverageMargin(uint256 _max) internal view returns (uint256) {
-        return _max * LEVERAGE_RATIO_BPS / Constants.TOTAL_BPS;
-    }
-
-    function getSafeLeveragedSupply(uint256 _initialSupply) public view returns (uint256) {
-        return LEVERAGE_RATIO_BPS > 0
-            ? _applyLeverageMargin(AAVEHelper(_aaveHelper).getMaxLeverage(_initialSupply))
-            : _initialSupply;
     }
 
     function _delegateCreditToHelper() internal {
