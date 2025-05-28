@@ -7,8 +7,9 @@ import {IPool} from "../../../interfaces/aave/IPool.sol";
 import {IAaveOracle} from "../../../interfaces/aave/IAaveOracle.sol";
 import {DataTypes} from "../../../interfaces/aave/DataTypes.sol";
 import {Constants} from "../../utils/Constants.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract AAVEHelper {
+contract AAVEHelper is Ownable {
     using Math for uint256;
 
     ///////////////////////////////
@@ -22,6 +23,11 @@ contract AAVEHelper {
      * @dev variable rate.
      */
     uint256 constant INTEREST_MODE = 2;
+
+    /**
+     * @dev leverage ratio in AAVE with looping supply and borrow.
+     */
+    uint256 public LEVERAGE_RATIO_BPS = 9500;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -47,9 +53,10 @@ contract AAVEHelper {
     event SupplyToAAVE(address indexed _caller, uint256 _supplied, uint256 _mintedAToken, uint256 _health);
     event BorrowFromAAVE(address indexed _caller, uint256 _borrowed, uint256 _health);
     event RepayDebtInAAVE(address indexed _caller, uint256 _repaidETH, uint256 _health);
-    event WithdrawFromAAVE(address indexed _caller, uint256 _withdrawn, uint256 _health);
 
-    constructor(address strategy, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode) {
+    constructor(address strategy, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode)
+        Ownable(msg.sender)
+    {
         _strategy = strategy;
 
         supplyToken.approve(address(aavePool), type(uint256).max);
@@ -66,6 +73,13 @@ contract AAVEHelper {
         _eMode = eMode;
 
         emit AAVEHelperCreated(_strategy, address(supplyToken), address(borrowToken), _eMode);
+    }
+
+    function setLeverageRatio(uint256 _ratio) external onlyOwner {
+        if (_ratio > Constants.TOTAL_BPS) {
+            revert Constants.INVALID_BPS_TO_SET();
+        }
+        LEVERAGE_RATIO_BPS = _ratio;
     }
 
     ///////////////////////////////
@@ -113,27 +127,6 @@ contract AAVEHelper {
         (,,,,, uint256 newHealthFactor) = aavePool.getUserAccountData(msg.sender);
         emit RepayDebtInAAVE(msg.sender, _repaid, newHealthFactor);
         return _repaid;
-    }
-
-    function withdrawCollateralFromAAVE(uint256 _toWithdraw) external returns (uint256) {
-        uint256 _aTokenOnBehalf = _supplyAToken.balanceOf(msg.sender);
-        // might be a bit bigger number for required
-        uint256 _aTokenRequired = _toWithdraw;
-        uint256 _toTransfer = _aTokenRequired > _aTokenOnBehalf ? _aTokenOnBehalf : _aTokenRequired;
-        _supplyAToken.transferFrom(msg.sender, address(this), _toTransfer);
-
-        uint256 _aTokenBefore = _supplyAToken.balanceOf(address(this));
-        uint256 _withdrawn = aavePool.withdraw(address(_supplyToken), _toWithdraw, msg.sender);
-        uint256 _aTokenAfter = _supplyAToken.balanceOf(address(this));
-
-        uint256 _diff = _aTokenBefore - _aTokenAfter;
-        if (_toTransfer > _diff) {
-            _supplyAToken.transfer(msg.sender, _toTransfer - _diff);
-        }
-
-        (,,,,, uint256 newHealthFactor) = aavePool.getUserAccountData(msg.sender);
-        emit WithdrawFromAAVE(msg.sender, _withdrawn, newHealthFactor);
-        return _withdrawn;
     }
 
     /**
@@ -196,7 +189,7 @@ contract AAVEHelper {
         return (_cAmount, _dAmount, totalCollateralBase, totalDebtBase);
     }
 
-    function getMaxLeverage(uint256 _amount) external view returns (uint256) {
+    function getMaxLeverage(uint256 _amount) public view returns (uint256) {
         uint256 _maxLTV = getMaxLTV();
         return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
     }
@@ -207,5 +200,13 @@ contract AAVEHelper {
 
     function _checkEMode(uint8 _mode) internal view returns (bool) {
         return (_mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE);
+    }
+
+    function applyLeverageMargin(uint256 _max) public view returns (uint256) {
+        return _max * LEVERAGE_RATIO_BPS / Constants.TOTAL_BPS;
+    }
+
+    function getSafeLeveragedSupply(uint256 _initialSupply) public view returns (uint256) {
+        return LEVERAGE_RATIO_BPS > 0 ? applyLeverageMargin(getMaxLeverage(_initialSupply)) : _initialSupply;
     }
 }

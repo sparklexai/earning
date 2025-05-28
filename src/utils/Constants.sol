@@ -39,8 +39,23 @@ library Constants {
         }
     }
 
+    error INVALID_BPS_TO_SET();
+
     // errors in vault
     error STRATEGY_COLLECTION_IN_PROCESS();
+    error WRONG_STRATEGY_TO_REMOVE();
+    error ZERO_SHARE_TO_MINT();
+    error TOO_SMALL_FIRST_SHARE();
+
+    // errors in AAVE related strategy
+    error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();
+    error FAIL_TO_REPAY_FLASHLOAN_DELEVERAGE();
+    error WRONG_AAVE_FLASHLOAN_CALLER();
+    error WRONG_AAVE_FLASHLOAN_INITIATOR();
+    error WRONG_AAVE_FLASHLOAN_ASSET();
+    error WRONG_AAVE_FLASHLOAN_PREMIUM();
+    error WRONG_AAVE_FLASHLOAN_AMOUNT();
+    error ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
 
     // errors in EtherFi related strategy
     error TOO_MANY_WITHDRAW_FOR_ETHERFI();

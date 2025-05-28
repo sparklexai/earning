@@ -130,17 +130,23 @@ contract SparkleXVault is ERC4626, Ownable {
     }
 
     function setEarnRatio(uint256 _ratio) external onlyOwner {
-        require(_ratio >= 0 && _ratio <= Constants.TOTAL_BPS, "invalid earn ratio!");
+        if (_ratio > Constants.TOTAL_BPS) {
+            revert Constants.INVALID_BPS_TO_SET();
+        }
         EARN_RATIO_BPS = _ratio;
     }
 
     function setWithdrawFeeRatio(uint256 _ratio) external onlyOwner {
-        require(_ratio >= 0 && _ratio < Constants.TOTAL_BPS, "invalid withdraw fee ratio!");
+        if (_ratio >= Constants.TOTAL_BPS) {
+            revert Constants.INVALID_BPS_TO_SET();
+        }
         WITHDRAW_FEE_BPS = _ratio;
     }
 
     function setManagementFeeRatio(uint256 _ratio) external onlyOwner {
-        require(_ratio >= 0 && _ratio < Constants.TOTAL_BPS, "invalid management fee ratio!");
+        if (_ratio >= Constants.TOTAL_BPS) {
+            revert Constants.INVALID_BPS_TO_SET();
+        }
         MANAGEMENT_FEE_BPS = _ratio;
     }
 
@@ -170,7 +176,9 @@ contract SparkleXVault is ERC4626, Ownable {
 
     function removeStrategy(address _strategyAddr) external onlyOwner {
         uint256 _strategyAlloc = strategyAllocations[_strategyAddr];
-        require(_strategyAlloc > 0 && IStrategy(_strategyAddr).vault() == address(this), "!invalid strategy to remove");
+        if (_strategyAlloc == 0 || IStrategy(_strategyAddr).vault() != address(this)) {
+            revert Constants.WRONG_STRATEGY_TO_REMOVE();
+        }
 
         if (IStrategy(_strategyAddr).assetsInCollection() > 0) {
             revert Constants.STRATEGY_COLLECTION_IN_PROCESS();
@@ -237,12 +245,16 @@ contract SparkleXVault is ERC4626, Ownable {
     // erc4626 customized methods
     ///////////////////////////////
     function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
-        require(shares > 0, "!deposit mint zero share");
+        if (shares == 0) {
+            revert Constants.ZERO_SHARE_TO_MINT();
+        }
 
         SafeERC20.safeTransferFrom(ERC20(asset()), caller, address(this), assets);
 
         if (totalSupply() == 0) {
-            require(shares > MIN_SHARE, "!too small first share");
+            if (shares <= MIN_SHARE) {
+                revert Constants.TOO_SMALL_FIRST_SHARE();
+            }
             _mint(address(this), MIN_SHARE);
             shares = shares - MIN_SHARE;
         }

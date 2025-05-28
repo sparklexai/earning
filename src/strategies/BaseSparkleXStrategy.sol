@@ -7,13 +7,19 @@ import {Constants} from "../utils/Constants.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TokenSwapper} from "../utils/TokenSwapper.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
 interface ISparkleXVault {
     function getAllocationAvailableForStrategy(address _strategyAddr) external view returns (uint256);
 }
 
+interface ITokenSwapper {
+    function applySlippageMargin(uint256 _theory) external view returns (uint256);
+}
+
 abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     using Math for uint256;
+    using Address for address;
 
     ///////////////////////////////
     // constants
@@ -26,7 +32,6 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     ///////////////////////////////
     // member storage
     ///////////////////////////////
-    uint256 SWAP_SLIPPAGE_BPS = 9960;
     ERC20 immutable _asset;
     address immutable _vault;
     address _strategist;
@@ -82,11 +87,6 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         _swapper = _newSwapper;
     }
 
-    function setSlippage(uint256 _slippage) external onlyStrategist {
-        require(_slippage > 0 && _slippage < Constants.TOTAL_BPS, "!invalid slippage");
-        SWAP_SLIPPAGE_BPS = _slippage;
-    }
-
     function strategist() external view virtual returns (address) {
         return _strategist;
     }
@@ -116,12 +116,10 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         return _amount > _maxAllocation ? _maxAllocation : _amount;
     }
 
-    function _applySlippageMargin(uint256 _theory) internal view returns (uint256) {
-        return _theory * Constants.TOTAL_BPS / SWAP_SLIPPAGE_BPS;
-    }
-
     function _capAmountByBalance(ERC20 _token, uint256 _amount, bool _applyMargin) internal view returns (uint256) {
-        uint256 _expected = _applyMargin ? _applySlippageMargin(_amount) : _amount;
+        uint256 _expected = (_applyMargin && _swapper != Constants.ZRO_ADDR)
+            ? ITokenSwapper(_swapper).applySlippageMargin(_amount)
+            : _amount;
         uint256 _balance = _token.balanceOf(address(this));
         return _balance > _expected ? _expected : _balance;
     }
@@ -130,5 +128,13 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         if (ERC20(_token).allowance(address(this), _spender) == 0) {
             ERC20(_token).approve(_spender, type(uint256).max);
         }
+    }
+
+    function manageCall(address target, bytes calldata data, uint256 value)
+        external
+        onlyOwner
+        returns (bytes memory result)
+    {
+        result = target.functionCallWithValue(data, value);
     }
 }
