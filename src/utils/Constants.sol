@@ -43,6 +43,7 @@ library Constants {
 
     // errors in vault
     error STRATEGY_COLLECTION_IN_PROCESS();
+    error WRONG_STRATEGY_TO_ADD();
     error WRONG_STRATEGY_TO_REMOVE();
     error ZERO_SHARE_TO_MINT();
     error TOO_SMALL_FIRST_SHARE();
