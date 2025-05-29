@@ -176,6 +176,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256 _ltv = _printAAVEPosition();
         assertEq(_ltv, 0);
 
+        vm.expectRevert(Constants.STRATEGY_COLLECTION_IN_PROCESS.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.removeStrategy(address(myStrategy));
+        vm.stopPrank();
+
         uint256 _withdrawReqId = _activeWithdrawReqs[0][0];
         _finalizeWithdrawRequest(_withdrawReqId);
         _claimWithdrawRequest(strategist, _withdrawReqId);
@@ -189,6 +194,12 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
 
         _claimRedemptionRequest(_user, _toRedeemShare);
+
+        vm.startPrank(stkVOwner);
+        stkVault.removeStrategy(address(myStrategy));
+        vm.stopPrank();
+
+        assertEq(stkVault.strategyAllocations(address(myStrategy)), 0);
     }
 
     function test_Leverage_Collect_Portion(uint256 _testVal) public {
