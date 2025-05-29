@@ -74,7 +74,7 @@ contract SparkleXVaultTest is TestUtils {
 
         address payable _feeRecipient = _getNextUserAddress();
         vm.startPrank(stkVOwner);
-        SparkleXVault(stkVault).setFeeRecipient(_feeRecipient);
+        stkVault.setFeeRecipient(_feeRecipient);
         vm.stopPrank();
         assertEq(_feeRecipient, stkVault.getFeeRecipient());
 
@@ -110,28 +110,49 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         assertEq(_feeBps, stkVault.MANAGEMENT_FEE_BPS());
 
-        (,, uint256 _ts0) = stkVault.mgmtFee();
         uint256 _currentTime = block.timestamp;
         uint256 _timeElapsed = Constants.ONE_YEAR / 12;
         uint256 _targetTime = _currentTime + _timeElapsed;
+        vm.warp(_targetTime);
+
+        (,, uint256 _ts0) = stkVault.mgmtFee();
+        vm.startPrank(stkVOwner);
+        stkVault.accumulateManagementFee();
+        vm.stopPrank();
+
+        (uint256 _fee, uint256 _supply, uint256 _ts) = stkVault.mgmtFee();
+        uint256 _expectedFee = (_totalAssets * (_targetTime - _ts0) * stkVault.MANAGEMENT_FEE_BPS())
+            / (Constants.TOTAL_BPS * Constants.ONE_YEAR);
+        console.log("_fee:%d,_supply:%d,_ts:%d", _fee, _supply, _ts);
+        assertEq(_ts, _targetTime);
+        assertEq(_supply, _totalAssets);
+        assertTrue(_assertApproximateEq(_fee, _expectedFee, BIGGER_TOLERANCE));
+
+        // accumulate fee again
+        _currentTime = block.timestamp;
+        _targetTime = _currentTime + _timeElapsed;
         vm.warp(_targetTime);
 
         vm.startPrank(stkVOwner);
         stkVault.accumulateManagementFee();
         vm.stopPrank();
 
-        (uint256 _fee, uint256 _supply, uint256 _ts) = stkVault.mgmtFee();
-        console.log("_fee:%d,_supply:%d,_ts:%d", _fee, _supply, _ts);
-        assertEq(_ts, _targetTime);
-        assertEq(_supply, _totalAssets);
-        assertTrue(
-            _assertApproximateEq(
-                _fee,
-                (_totalAssets * (_targetTime - _ts0) * stkVault.MANAGEMENT_FEE_BPS())
-                    / (Constants.TOTAL_BPS * Constants.ONE_YEAR),
-                COMP_TOLERANCE
-            )
-        );
+        (uint256 _fee2,,) = stkVault.mgmtFee();
+        uint256 _expectedFee2 = _fee
+            + (_totalAssets * (_targetTime - _ts) * stkVault.MANAGEMENT_FEE_BPS())
+                / (Constants.TOTAL_BPS * Constants.ONE_YEAR);
+        console.log("_fee2:%d", _fee2);
+        assertTrue(_assertApproximateEq(_fee2, _expectedFee2, BIGGER_TOLERANCE));
+
+        address payable _feeRecipient = _getNextUserAddress();
+        vm.startPrank(stkVOwner);
+        stkVault.setFeeRecipient(_feeRecipient);
+        stkVault.claimManagementFee();
+        vm.stopPrank();
+        assertEq(_fee2, ERC20(wETH).balanceOf(_feeRecipient));
+
+        (uint256 _fee3,,) = stkVault.mgmtFee();
+        assertEq(_fee3, 0);
     }
 
     function test_Deposit_Inflation() public {
