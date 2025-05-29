@@ -46,6 +46,7 @@ library Constants {
     error WRONG_STRATEGY_TO_REMOVE();
     error ZERO_SHARE_TO_MINT();
     error TOO_SMALL_FIRST_SHARE();
+    error WRONG_PRICE_FROM_ORACLE();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();
