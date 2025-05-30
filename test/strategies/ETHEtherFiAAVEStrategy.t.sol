@@ -370,6 +370,43 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
     }
 
+    function test_Invest_MaxBorrow(uint256 _testVal) public {
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
+
+        uint256 _initSupply = _testVal / 3;
+        vm.startPrank(strategist);
+        myStrategy.invest(_initSupply, _initSupply * 3);
+        vm.stopPrank();
+
+        (uint256 _netSupply0, uint256 _debt0,) = myStrategy.getNetSupplyAndDebt(false);
+
+        uint256 _supplied = IWeETH(weETH).getWeETHByeETH(_initSupply);
+        uint256 _newSupplied = _supplied + _netSupply0;
+        uint256 _maxLeveraged = aaveHelper.getSafeLeveragedSupply(_newSupplied);
+        uint256 _toBorrowed = _maxLeveraged - _newSupplied - _debt0;
+        vm.startPrank(strategist);
+        myStrategy.invest(_initSupply, type(uint256).max);
+        vm.stopPrank();
+
+        (uint256 _netSupply, uint256 _debt, uint256 _totalSupply) = myStrategy.getNetSupplyAndDebt(false);
+        console.log("_maxLeveraged:%d,_newSupplied:%d", _maxLeveraged, _newSupplied);
+        console.log("_totalSupply:%d,_netSupply:%d", _totalSupply, _netSupply);
+
+        assertTrue(
+            _assertApproximateEq(
+                (_maxLeveraged * Constants.TOTAL_BPS / _newSupplied),
+                (_totalSupply * Constants.TOTAL_BPS / _netSupply),
+                BIGGER_TOLERANCE
+            )
+        );
+
+        _checkBasicInvariants(address(stkVault));
+    }
+
     function test_Max_Redeem(uint256 _testVal) public {
         _fundFirstDepositGenerously(address(stkVault));
 
