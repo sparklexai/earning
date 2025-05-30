@@ -48,10 +48,9 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function setAAVEHelper(address _newHelper) external onlyStrategist {
-        require(
-            _newHelper != Constants.ZRO_ADDR && AAVEHelper(_newHelper)._strategy() == address(this),
-            "!invalid aave helper"
-        );
+        if (_newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         emit AAVEHelperChanged(_aaveHelper, _newHelper);
         _aaveHelper = _newHelper;
         _delegateCreditToHelper();
@@ -103,7 +102,9 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
      * @dev Note if _borrowAmount > 0 (case [A] & [C]) borrowed token might be converted to _asset and then sent back to _vault
      */
     function invest(uint256 _assetAmount, uint256 _borrowAmount) external virtual onlyStrategist {
-        require(_borrowAmount > 0 || _assetAmount > 0, "!invalid invest amounts to AAVE");
+        if (_borrowAmount == 0 && _assetAmount == 0) {
+            return;
+        }
 
         if (_borrowAmount == 0) {
             _supplyToAAVE(_prepareSupplyFromAsset(_assetAmount));

@@ -51,7 +51,9 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     }
 
     function setEtherFiHelper(address _newHelper) external onlyStrategist {
-        require(_newHelper != Constants.ZRO_ADDR, "!invalid etherfi helper");
+        if (_newHelper == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         emit EtherFiHelperChanged(_etherfiHelper, _newHelper);
         _etherfiHelper = payable(_newHelper);
         _approveToken(wETH, _etherfiHelper);
