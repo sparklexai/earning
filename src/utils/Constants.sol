@@ -63,6 +63,7 @@ library Constants {
     error WRONG_AAVE_FLASHLOAN_PREMIUM();
     error WRONG_AAVE_FLASHLOAN_AMOUNT();
     error ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
+    error FAIL_TO_SAFE_LEVERAGE();
 
     // errors in EtherFi related strategy
     error TOO_MANY_WITHDRAW_FOR_ETHERFI();
