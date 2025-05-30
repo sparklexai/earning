@@ -112,18 +112,25 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     }
 
     function _leveragePosition(uint256 _assetAmount, uint256 _borrowAmount) internal override {
-        require(_borrowAmount > 0, "!invalid borrow amount to leverage in AAVE");
+        if (_borrowAmount == 0) {
+            return;
+        }
 
         _prepareSupplyFromAsset(_assetAmount);
 
-        (uint256 _netSupply,,) = getNetSupplyAndDebt(false);
+        (uint256 _netSupply, uint256 _debtInSupply,) = getNetSupplyAndDebt(false);
         uint256 _initSupply = _supplyToken.balanceOf(address(this)) + _netSupply;
         if (_initSupply == 0) {
             revert Constants.ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
         }
 
         uint256 _safeLeveraged = AAVEHelper(_aaveHelper).getSafeLeveragedSupply(_initSupply);
-        uint256 _toBorrow = _safeLeveraged == _initSupply ? 0 : _convertSupplyToBorrow(_safeLeveraged - _initSupply);
+
+        if (_safeLeveraged <= _initSupply + _debtInSupply) {
+            revert Constants.FAIL_TO_SAFE_LEVERAGE();
+        }
+
+        uint256 _toBorrow = _convertSupplyToBorrow(_safeLeveraged - _initSupply - _debtInSupply);
         _toBorrow = _toBorrow > _borrowAmount ? _borrowAmount : _toBorrow;
 
         address[] memory assets = new address[](1);
