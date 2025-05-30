@@ -48,6 +48,11 @@ library Constants {
     error ZERO_SHARE_TO_MINT();
     error TOO_SMALL_FIRST_SHARE();
     error WRONG_PRICE_FROM_ORACLE();
+    error INVALID_ADDRESS_TO_SET();
+    error ONLY_FOR_CLAIMER();
+    error ONLY_FOR_CLAIMER_OR_OWNER();
+    error ONLY_FOR_STRATEGIST();
+    error ONLY_FOR_STRATEGIST_OR_VAULT();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();

@@ -45,8 +45,9 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     event SwapperChanged(address indexed _old, address indexed _new);
 
     constructor(ERC20 token, address vaultAddr) Ownable(msg.sender) {
-        require(address(token) != Constants.ZRO_ADDR, "!invalid asset");
-        require(vaultAddr != Constants.ZRO_ADDR, "!invalid vault");
+        if (address(token) == Constants.ZRO_ADDR || vaultAddr == Constants.ZRO_ADDR){
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
 
         _asset = token;
         _vault = vaultAddr;
@@ -59,7 +60,9 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
      * @dev allow only called by strategist.
      */
     modifier onlyStrategist() {
-        require(msg.sender == _strategist, "!not strategist");
+        if (msg.sender != _strategist){
+            revert Constants.ONLY_FOR_STRATEGIST();
+        }
         _;
     }
 
@@ -67,7 +70,9 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
      * @dev allow only called by strategist.
      */
     modifier onlyStrategistOrVault() {
-        require(msg.sender == _strategist || msg.sender == _vault, "!not strategist nor vault");
+        if (msg.sender != _strategist && msg.sender != _vault){
+            revert Constants.ONLY_FOR_STRATEGIST_OR_VAULT();
+        }
         _;
     }
 
@@ -76,13 +81,17 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     ///////////////////////////////
 
     function setStrategist(address _newStrategist) external onlyOwner {
-        require(_newStrategist != Constants.ZRO_ADDR, "!invalid strategist");
+        if (_newStrategist == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         emit StrategistChanged(_strategist, _newStrategist);
         _strategist = _newStrategist;
     }
 
     function setSwapper(address _newSwapper) external onlyStrategist {
-        require(_newSwapper != Constants.ZRO_ADDR, "!invalid token swapper");
+        if (_newSwapper == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         emit SwapperChanged(_swapper, _newSwapper);
         _swapper = _newSwapper;
     }
