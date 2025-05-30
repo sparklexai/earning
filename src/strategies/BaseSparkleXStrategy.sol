@@ -45,7 +45,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     event SwapperChanged(address indexed _old, address indexed _new);
 
     constructor(ERC20 token, address vaultAddr) Ownable(msg.sender) {
-        if (address(token) == Constants.ZRO_ADDR || vaultAddr == Constants.ZRO_ADDR){
+        if (address(token) == Constants.ZRO_ADDR || vaultAddr == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
 
@@ -60,7 +60,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
      * @dev allow only called by strategist.
      */
     modifier onlyStrategist() {
-        if (msg.sender != _strategist){
+        if (msg.sender != _strategist) {
             revert Constants.ONLY_FOR_STRATEGIST();
         }
         _;
@@ -70,7 +70,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
      * @dev allow only called by strategist.
      */
     modifier onlyStrategistOrVault() {
-        if (msg.sender != _strategist && msg.sender != _vault){
+        if (msg.sender != _strategist && msg.sender != _vault) {
             revert Constants.ONLY_FOR_STRATEGIST_OR_VAULT();
         }
         _;

@@ -164,7 +164,7 @@ contract SparkleXVault is ERC4626, Ownable {
     function addStrategy(address _strategyAddr, uint256 _allocation) external onlyOwner {
         if (
             _strategyAddr == Constants.ZRO_ADDR || IStrategy(_strategyAddr).asset() != asset()
-                || IStrategy(_strategyAddr).vault() != address(this)
+                || IStrategy(_strategyAddr).vault() != address(this) || strategyAllocations[_strategyAddr] > 0
         ) {
             revert Constants.WRONG_STRATEGY_TO_ADD();
         }

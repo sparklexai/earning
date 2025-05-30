@@ -225,6 +225,12 @@ contract SparkleXVaultTest is TestUtils {
 
         assertEq(address(myStrategy), stkVault.allStrategies(0));
 
+        // can't add again        
+        vm.expectRevert(Constants.WRONG_STRATEGY_TO_ADD.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(myStrategy), _alloc1);
+        vm.stopPrank();
+
         // create the second strategy
         uint256 _alloc2 = 10;
         DummyStrategy myStrategy2 = new DummyStrategy(wETH, address(stkVault));
