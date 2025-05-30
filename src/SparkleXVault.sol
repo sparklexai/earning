@@ -45,7 +45,7 @@ contract SparkleXVault is ERC4626, Ownable {
     /**
      * @dev active strategy number
      */
-    uint256 public activeStrategies;
+    uint8 public activeStrategies;
 
     /**
      * @dev mapping from strategy address to recording info
@@ -72,7 +72,9 @@ contract SparkleXVault is ERC4626, Ownable {
         ERC20(name_, symbol_)
         Ownable(msg.sender)
     {
-        require(address(_asset) != Constants.ZRO_ADDR, "!invalid asset");
+        if (address(_asset) == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         _redemptionClaimer = msg.sender;
         _feeRecipient = msg.sender;
     }
@@ -81,7 +83,9 @@ contract SparkleXVault is ERC4626, Ownable {
      * @dev allow only called by redemption claimer.
      */
     modifier onlyRedemptionClaimer() {
-        require(msg.sender == _redemptionClaimer, "!not redemption claimer");
+        if (msg.sender != _redemptionClaimer) {
+            revert Constants.ONLY_FOR_CLAIMER();
+        }
         _;
     }
 
@@ -89,7 +93,9 @@ contract SparkleXVault is ERC4626, Ownable {
      * @dev allow only called by owner or claimer.
      */
     modifier onlyRedemptionClaimerOrOwner() {
-        require(msg.sender == _redemptionClaimer || msg.sender == owner(), "!not owner nor claimer");
+        if (msg.sender != _redemptionClaimer && msg.sender != owner()) {
+            revert Constants.ONLY_FOR_CLAIMER_OR_OWNER();
+        }
         _;
     }
 
@@ -118,13 +124,17 @@ contract SparkleXVault is ERC4626, Ownable {
     }
 
     function setRedemptionClaimer(address _newClaimer) external onlyOwner {
-        require(_newClaimer != Constants.ZRO_ADDR, "!invalid redemption claimer");
+        if (_newClaimer == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         emit RedemptionClaimerChanged(_redemptionClaimer, _newClaimer);
         _redemptionClaimer = _newClaimer;
     }
 
     function setFeeRecipient(address _newRecipient) external onlyOwner {
-        require(_newRecipient != Constants.ZRO_ADDR, "!invalid fee recipient");
+        if (_newRecipient == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
         emit FeeRecipientChanged(_feeRecipient, _newRecipient);
         _feeRecipient = _newRecipient;
     }
