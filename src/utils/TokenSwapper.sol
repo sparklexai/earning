@@ -162,7 +162,7 @@ contract TokenSwapper is Ownable {
         uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(msg.sender);
         address(pendleRouteV4).functionCall(_swapCallData);
         uint256 _actualOut = ERC20(_outputToken).balanceOf(msg.sender) - _outputBalBefore;
-        if (_actualOut < _minOut) {
+        if (applySlippageMargin(_actualOut) < _minOut) {
             revert Constants.SWAP_OUT_TOO_SMALL();
         }
         return _actualOut;
