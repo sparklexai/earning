@@ -47,6 +47,7 @@ library Constants {
     error WRONG_STRATEGY_TO_REMOVE();
     error ZERO_SHARE_TO_MINT();
     error TOO_SMALL_FIRST_SHARE();
+    error WRONG_PRICE_FROM_ORACLE();
     error INVALID_ADDRESS_TO_SET();
     error ONLY_FOR_CLAIMER();
     error ONLY_FOR_CLAIMER_OR_OWNER();
