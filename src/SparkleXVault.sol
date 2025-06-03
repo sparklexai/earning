@@ -242,7 +242,9 @@ contract SparkleXVault is ERC4626, Ownable {
     function claimManagementFee() external onlyRedemptionClaimerOrOwner {
         ManagementFeeRecord storage _feeRecord = mgmtFee;
         uint256 _feeToClaim = _feeRecord.feesAccumulated;
-        require(_feeToClaim > 0, "!zero management fee to claim");
+        if (_feeToClaim == 0) {
+            return;
+        }
 
         _feeRecord.feesAccumulated = 0;
         SafeERC20.safeTransferFrom(ERC20(asset()), address(this), _feeRecipient, _feeToClaim);
@@ -331,9 +333,14 @@ contract SparkleXVault is ERC4626, Ownable {
         if (shares > _shareBalance) {
             shares = _shareBalance;
         }
+        if (shares == 0) {
+            return shares;
+        }
 
         uint256 _asset = previewRedeem(shares);
-        require(shares > 0 && _asset > 0, "zero to redeem!");
+        if (_asset == 0) {
+            revert Constants.ZERO_ASSET_TO_USER();
+        }
 
         (uint256 _residue, bool _notEnough) = _checkAssetResidue(_asset);
         if (!_notEnough) {
@@ -343,12 +350,10 @@ contract SparkleXVault is ERC4626, Ownable {
             return ERC20(asset()).balanceOf(msg.sender) - _before;
         } else {
             // need to request withdraw from strategies by monitoring bot
-            require(
-                userRedemptionRequestShares[msg.sender] == 0 && userRedemptionRequestAssets[msg.sender] == 0,
-                "redemption exist!"
-            );
-            _burn(msg.sender, shares);
-            _mint(address(this), shares);
+            if (userRedemptionRequestShares[msg.sender] > 0 || userRedemptionRequestAssets[msg.sender] > 0) {
+                revert Constants.USER_REDEMPTION_NOT_CLAIMED();
+            }
+            _transfer(msg.sender, address(this), shares);
             userRedemptionRequestShares[msg.sender] = shares;
             userRedemptionRequestAssets[msg.sender] = _asset;
             emit RedemptionRequested(msg.sender, shares, _asset);
@@ -365,12 +370,16 @@ contract SparkleXVault is ERC4626, Ownable {
 
     function _claimRedemptionRequestFor(address _user) internal returns (uint256) {
         uint256 _share = userRedemptionRequestShares[_user];
-        require(_share > 0, "redemption not exist!");
+        if (_share == 0) {
+            return _share;
+        }
 
         uint256 _asset = userRedemptionRequestAssets[_user];
         uint256 _currentWorth = previewRedeem(_share);
         uint256 _toUsr = _asset > _currentWorth ? _currentWorth : _asset;
-        require(_toUsr > 0, "zero asset to send!");
+        if (_toUsr == 0) {
+            revert Constants.ZERO_ASSET_TO_USER();
+        }
 
         (uint256 _residue,) = _checkAssetResidue(_toUsr);
         _toUsr = _toUsr > _residue ? _residue : _toUsr;

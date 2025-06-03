@@ -61,6 +61,17 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         stkVault.addStrategy(address(myStrategy), 100);
         vm.stopPrank();
 
+        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST.selector);
+        vm.startPrank(withdrawNFTAdmin);
+        myStrategy.setSwapper(address(swapper));
+        vm.stopPrank();
+
+        address _strategyOwner = myStrategy.owner();
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(_strategyOwner);
+        myStrategy.setStrategist(Constants.ZRO_ADDR);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setEtherFiHelper(address(etherfiHelper));
@@ -158,6 +169,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _toRedeemShare, address(stkVault));
         assertEq(stkVault.userRedemptionRequestShares(_user), (_toRedeemShare > _share ? _share : _toRedeemShare));
         assertEq(stkVault.userRedemptionRequestAssets(_user), _redemptioRequested);
+
+        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST_OR_VAULT.selector);
+        vm.startPrank(_user);
+        myStrategy.collectAll();
+        vm.stopPrank();
 
         vm.startPrank(strategist);
         myStrategy.collectAll();
@@ -312,7 +328,12 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.startPrank(stkVOwner);
         stkVault.setRedemptionClaimer(_batchClaimer);
         vm.stopPrank();
-        assertEq(stkVault._redemptionClaimer(), _batchClaimer);
+        assertEq(stkVault.getRedemptionClaimer(), _batchClaimer);
+
+        vm.expectRevert(Constants.ONLY_FOR_CLAIMER.selector);
+        vm.startPrank(_user);
+        stkVault.batchClaimRedemptionRequestsFor(_users);
+        vm.stopPrank();
 
         TestUtils._batchClaimRedemptionRequest(_batchClaimer, _users, _shares, address(stkVault), COMP_TOLERANCE);
 
