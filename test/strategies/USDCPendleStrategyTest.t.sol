@@ -12,6 +12,7 @@ import {IPAllActionV3} from "@pendle/contracts/interfaces/IPAllActionV3.sol";
 import {IPPrincipalToken} from "@pendle/contracts/interfaces/IPPrincipalToken.sol";
 import {IPMarketV3} from "@pendle/contracts/interfaces/IPMarketV3.sol";
 import {IPRouterStatic} from "@pendle/contracts/interfaces/IPRouterStatic.sol";
+import {DummyDEXRouter} from "../mock/DummyDEXRouter.sol";
 
 // run this test with mainnet fork
 // forge coverage --fork-url <rpc_url> --match-path USDCPendleStrategyTest -vvv --no-match-coverage "(script|test)"
@@ -20,6 +21,7 @@ contract USDCPendleStrategyTest is TestUtils {
     address public stkVOwner;
     address public strategist;
     TokenSwapper public swapper;
+    DummyDEXRouter public mockRouter;
 
     address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address usdcWhale = 0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341; //sky:PSM
@@ -33,6 +35,7 @@ contract USDCPendleStrategyTest is TestUtils {
 
     // mainnet pendle PT pool
     IPPrincipalToken sUSDeJUL31_PT = IPPrincipalToken(0x3b3fB9C57858EF816833dC91565EFcd85D96f634);
+    address sUSDeJUL31_PT_Whale = 0x520A816aA9E220a24590862bed50E91047349142;
     IPMarketV3 sUSDeJUL31_Market = IPMarketV3(0x4339Ffe2B7592Dc783ed13cCE310531aB366dEac);
     bytes4 constant TARGET_SELECTOR_PENDLE = hex"c81f847a"; //swapExactTokenForPt()
 
@@ -41,6 +44,7 @@ contract USDCPendleStrategyTest is TestUtils {
         stkVOwner = stkVault.owner();
 
         swapper = new TokenSwapper();
+        mockRouter = new DummyDEXRouter();
     }
 
     function test_SwapForPT() public {
@@ -80,5 +84,38 @@ contract USDCPendleStrategyTest is TestUtils {
         assertTrue(
             _assertApproximateEq((_testVal * 1e18 * 1e18 / (1e6 * _pt2AssetRate)), ptOut, BIGGER_TOLERANCE * 100)
         );
+    }
+
+    function test_Mock_DummySwap(uint256 _inAmount) public {
+        uint256 _usdc2PTPrice = 1080000000000000000; //1.08
+        _inAmount = bound(_inAmount, 100000000, 1000000000000);
+
+        DummyDEXRouter.SwapData memory emptySwap;
+        DummyDEXRouter.TokenInput memory _input = DummyDEXRouter.TokenInput({
+            tokenIn: usdc,
+            netTokenIn: _inAmount,
+            tokenMintSy: usdc,
+            pendleSwap: address(0),
+            swapData: emptySwap
+        });
+        DummyDEXRouter.ApproxParams memory _approxParams = DummyDEXRouter.ApproxParams({
+            guessMin: 0,
+            guessMax: type(uint256).max,
+            guessOffchain: 0,
+            maxIteration: 256,
+            eps: 1e14
+        });
+
+        DummyDEXRouter.LimitOrderData memory emptyLimit;
+
+        uint256 _outBalBefore = ERC20(address(sUSDeJUL31_PT)).balanceOf(usdcWhale);
+        vm.startPrank(usdcWhale);
+        mockRouter.setWhales(address(sUSDeJUL31_PT), sUSDeJUL31_PT_Whale);
+        mockRouter.setPrices(usdc, mockRouter.usde(), _usdc2PTPrice);
+        ERC20(usdc).approve(address(mockRouter), type(uint256).max);
+        (uint256 _out,,) =
+            mockRouter.swapExactTokenForPt(usdcWhale, address(sUSDeJUL31_Market), 0, _approxParams, _input, emptyLimit);
+        vm.stopPrank();
+        assertEq(_out, ERC20(address(sUSDeJUL31_PT)).balanceOf(usdcWhale) - _outBalBefore);
     }
 }
