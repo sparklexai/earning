@@ -4,6 +4,7 @@ pragma solidity 0.8.29;
 import {Test, console} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {WETH} from "../interfaces/IWETH.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
@@ -225,7 +226,7 @@ contract SparkleXVaultTest is TestUtils {
 
         assertEq(address(myStrategy), stkVault.allStrategies(0));
 
-        // can't add again        
+        // can't add again
         vm.expectRevert(Constants.WRONG_STRATEGY_TO_ADD.selector);
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), _alloc1);
@@ -254,5 +255,42 @@ contract SparkleXVaultTest is TestUtils {
         stkVault.removeStrategy(address(myStrategy));
         vm.stopPrank();
         assertEq(0, stkVault.strategyAllocations(address(myStrategy)));
+    }
+
+    function test_Basic_Timelock_Owner() public {
+        address _proposer = TestUtils._getSugarUser();
+        address[] memory _proposers = new address[](1);
+        _proposers[0] = _proposer;
+
+        address _executor = TestUtils._getSugarUser();
+        address[] memory _executors = new address[](1);
+        _executors[0] = _executor;
+
+        uint256 _minDelaySeconds = 600;
+        TimelockController timelocker =
+            new TimelockController(_minDelaySeconds, _proposers, _executors, Constants.ZRO_ADDR);
+
+        vm.startPrank(stkVOwner);
+        stkVault.transferOwnership(address(timelocker));
+        vm.stopPrank();
+        assertEq(address(timelocker), stkVault.owner());
+
+        uint256 _newWithdrawFee = 365;
+        bytes memory _setWithdrawFeeCall = abi.encodeWithSignature("setWithdrawFeeRatio(uint256)", _newWithdrawFee);
+
+        bytes32 _id = timelocker.hashOperation(address(stkVault), 0, _setWithdrawFeeCall, bytes32(0), bytes32(0));
+        vm.startPrank(_proposer);
+        timelocker.schedule(address(stkVault), 0, _setWithdrawFeeCall, bytes32(0), bytes32(0), _minDelaySeconds);
+        vm.stopPrank();
+        assertTrue(timelocker.isOperationPending(_id));
+        assertFalse(timelocker.isOperationReady(_id));
+
+        vm.warp(block.timestamp + _minDelaySeconds * 2);
+        assertTrue(timelocker.isOperationReady(_id));
+        vm.startPrank(_executor);
+        timelocker.execute(address(stkVault), 0, _setWithdrawFeeCall, bytes32(0), bytes32(0));
+        vm.stopPrank();
+        assertEq(_newWithdrawFee, stkVault.WITHDRAW_FEE_BPS());
+        assertTrue(timelocker.isOperationDone(_id));
     }
 }
