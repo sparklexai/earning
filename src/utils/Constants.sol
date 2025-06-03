@@ -53,6 +53,8 @@ library Constants {
     error ONLY_FOR_CLAIMER_OR_OWNER();
     error ONLY_FOR_STRATEGIST();
     error ONLY_FOR_STRATEGIST_OR_VAULT();
+    error ZERO_ASSET_TO_USER();
+    error USER_REDEMPTION_NOT_CLAIMED();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();

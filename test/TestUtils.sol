@@ -116,6 +116,11 @@ contract TestUtils is Test {
     }
 
     function _changeWithdrawFee(address _vaultOwner, address _vault, uint256 _bps) internal {
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(_vaultOwner);
+        SparkleXVault(_vault).setWithdrawFeeRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
         vm.startPrank(_vaultOwner);
         SparkleXVault(_vault).setWithdrawFeeRatio(_bps);
         vm.stopPrank();

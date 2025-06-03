@@ -106,6 +106,12 @@ contract SparkleXVaultTest is TestUtils {
 
         // accumulate fee
         _feeBps = bound(_feeBps, 100, 1000);
+
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.setWithdrawFeeRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
         vm.startPrank(stkVOwner);
         stkVault.setManagementFeeRatio(_feeBps);
         vm.stopPrank();
@@ -144,6 +150,11 @@ contract SparkleXVaultTest is TestUtils {
                 / (Constants.TOTAL_BPS * Constants.ONE_YEAR);
         console.log("_fee2:%d", _fee2);
         assertTrue(_assertApproximateEq(_fee2, _expectedFee2, BIGGER_TOLERANCE));
+
+        vm.expectRevert(Constants.ONLY_FOR_CLAIMER_OR_OWNER.selector);
+        vm.startPrank(_user);
+        stkVault.claimManagementFee();
+        vm.stopPrank();
 
         address payable _feeRecipient = _getNextUserAddress();
         vm.startPrank(stkVOwner);
@@ -255,6 +266,7 @@ contract SparkleXVaultTest is TestUtils {
         stkVault.removeStrategy(address(myStrategy));
         vm.stopPrank();
         assertEq(0, stkVault.strategyAllocations(address(myStrategy)));
+        assertEq(0, stkVault.getAllocationAvailableForStrategy(address(myStrategy)));
     }
 
     function test_Basic_Timelock_Owner() public {
