@@ -158,6 +158,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             _prepareSupplyFromAsset(amount);
             _supplyToAAVE(_supplyToken.balanceOf(address(this)));
         }
+        emit AllocateInvestment(msg.sender, amount);
     }
 
     function collect(uint256 amount) public override onlyStrategistOrVault {

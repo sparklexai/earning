@@ -72,8 +72,8 @@ contract USDCPendleStrategyTest is TestUtils {
 
         // check https://docs.pendle.finance/Developers/FAQ#how-do-i-fetch-the-pt-price
         uint256 _pt2AssetRate = pendleRouterStatic.getPtToAssetRate(address(sUSDe_JUL31_Market));
-        (int256 _usdcUsdPrice,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
-        (int256 _sUSDeUSDPrice,) = swapper.getPriceFromChainLink(sUSDe_USD_Feed);
+        (int256 _usdcUsdPrice,,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
+        (int256 _sUSDeUSDPrice,,) = swapper.getPriceFromChainLink(sUSDe_USD_Feed);
         // check https://docs.pendle.finance/Developers/Contracts/StandardizedYield#standard-sys
         uint256 _asset2SYRate = uint256(_usdcUsdPrice * 1e18 / _sUSDeUSDPrice);
         uint256 _sUSDePT2SYRate = swapper.getPTPriceInSYFromPendle(address(sUSDe_JUL31_Market), 0);

@@ -69,4 +69,14 @@ library Constants {
 
     // errors in EtherFi related strategy
     error TOO_MANY_WITHDRAW_FOR_ETHERFI();
+
+    // errors in Pendle related strategy
+    error INVALID_MARKET_TO_ADD();
+    error PT_NOT_FOUND();
+    error PT_ALREADY_EXISTS();
+    error PT_NOT_MATURED();
+    error PT_ALREADY_MATURED();
+    error INVALID_SWAP_CALLDATA();
+    error MAX_PT_EXCEEDED();
+    error PT_STILL_IN_USE();
 }

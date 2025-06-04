@@ -150,6 +150,10 @@ contract TokenSwapper is Ownable {
     // MUST have off-chain to supply parameter via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
     // Ensure the receiver of the swap is the calling strategy
     ///////////////////////////////
+
+    /**
+     * @dev ensure the receiver of this swap is the same as msg.sender and correctly encoded in given _swapCallData
+     */
     function swapWithPendleRouter(
         address _pendleRouter,
         address _inputToken,
@@ -170,12 +174,12 @@ contract TokenSwapper is Ownable {
         return _actualOut;
     }
 
-    function getPriceFromChainLink(address _aggregator) public view returns (int256, uint256) {
+    function getPriceFromChainLink(address _aggregator) public view returns (int256, uint256, uint8) {
         (uint80 roundId, int256 answer,, uint256 updatedAt,) = IOracleAggregatorV3(_aggregator).latestRoundData();
         if (roundId == 0 || answer <= 0) {
             revert Constants.WRONG_PRICE_FROM_ORACLE();
         }
-        return (answer, updatedAt);
+        return (answer, updatedAt, IOracleAggregatorV3(_aggregator).decimals());
     }
 
     function getPTPriceInSYFromPendle(address _pendleMarket, uint32 twapDurationInSeconds)
