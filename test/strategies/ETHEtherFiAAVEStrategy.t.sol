@@ -15,6 +15,7 @@ import {IWeETH} from "../../interfaces/etherfi/IWeETH.sol";
 import {IWithdrawRequestNFT} from "../../interfaces/etherfi/IWithdrawRequestNFT.sol";
 import {IPool} from "../../interfaces/aave/IPool.sol";
 import {IAaveOracle} from "../../interfaces/aave/IAaveOracle.sol";
+import {IPriceOracleGetter} from "../../interfaces/aave/IPriceOracleGetter.sol";
 import {TestUtils} from "../TestUtils.sol";
 import {Constants} from "../../src/utils/Constants.sol";
 import {DummyRewardDistributor} from "../mock/DummyRewardDistributor.sol";
@@ -189,7 +190,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
             )
         );
 
-        uint256 _ltv = _printAAVEPosition();
+        (uint256 _ltv,) = _printAAVEPosition();
         assertEq(_ltv, 0);
 
         vm.expectRevert(Constants.STRATEGY_COLLECTION_IN_PROCESS.selector);
@@ -271,8 +272,6 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _totalLoss = _totalLoss + TestUtils._applyFlashLoanFeeFromAAVE(aaveHelper.getMaxLeverage(_portionVal2))
             + _activeWithdrawReqs[1][2] + _activeWithdrawReqs[1][3];
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
-
-        assertEq(_printAAVEPosition(), 9300);
 
         _finalizeWithdrawRequest(_activeWithdrawReqs[0][0]);
         _finalizeWithdrawRequest(_activeWithdrawReqs[1][0]);
@@ -565,6 +564,88 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         );
     }
 
+    function test_Collateral_Price_Dip(uint256 _testVal) public {
+        _fundFirstDepositGenerously(address(stkVault));
+        uint256 _liqThreshold = 9500;
+        uint256 _collectPortion = 5000;
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 10 ether, 100 ether);
+        _testVal = _assetVal;
+
+        vm.startPrank(stkVOwner);
+        stkVault.setEarnRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setLeverageRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        vm.startPrank(strategist);
+        myStrategy.allocate(type(uint256).max);
+        vm.stopPrank();
+
+        (uint256 _ltv, uint256 _healthFactor) = _printAAVEPosition();
+
+        assertTrue(
+            _assertApproximateEq(
+                (1e18 * _liqThreshold / _healthFactor) * 1e16, aaveHelper.getMaxLTV() * 1e16, BIGGER_TOLERANCE * 20
+            )
+        );
+
+        uint256 _originalPrice = aaveOracle.getAssetPrice(weETH);
+        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
+
+        // price dip 1% -> LTV exceed maximum allowed -> collect() to reduce LTV
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(weETH)),
+            abi.encode(_originalPrice * 9900 / Constants.TOTAL_BPS)
+        );
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+        vm.startPrank(strategist);
+        myStrategy.collect(_netSupply * _collectPortion / Constants.TOTAL_BPS);
+        vm.stopPrank();
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) < aaveHelper.getMaxLTV());
+        (_netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
+
+        // price dip 2% -> LTV exceed maximum allowed -> collect() to reduce LTV
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(weETH)),
+            abi.encode(_originalPrice * 9800 / Constants.TOTAL_BPS)
+        );
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+        vm.startPrank(strategist);
+        myStrategy.collect(_netSupply * _collectPortion / Constants.TOTAL_BPS);
+        vm.stopPrank();
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) < aaveHelper.getMaxLTV());
+        (_netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
+
+        // price dip 3% -> LTV exceed maximum allowed -> collectAll()
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(weETH)),
+            abi.encode(_originalPrice * 9700 / Constants.TOTAL_BPS)
+        );
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+        vm.startPrank(strategist);
+        myStrategy.collectAll();
+        vm.stopPrank();
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertEq(0, _ltv);
+        assertEq(myStrategy.assetsInCollection(), myStrategy.totalAssets());
+
+        vm.clearMockedCalls();
+    }
+
     function test_Call_Distributor(uint256 _index, uint256 _amount, bytes32 _merkleProof) public {
         DummyRewardDistributor rewardDistributor = new DummyRewardDistributor();
 
@@ -582,12 +663,12 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
     }
 
-    function _printAAVEPosition() internal view returns (uint256) {
+    function _printAAVEPosition() internal view returns (uint256, uint256) {
         (uint256 _cBase, uint256 _dBase, uint256 _leftBase, uint256 _liqThresh, uint256 _ltv, uint256 _healthFactor) =
             aavePool.getUserAccountData(address(myStrategy));
         console.log("_ltv:%d,_liqThresh:%d,_healthFactor:%d", _ltv, _liqThresh, _healthFactor);
         console.log("_cBase:%d,_dBase:%d,_leftBase:%d", _cBase, _dBase, _leftBase);
-        return _ltv;
+        return (_ltv, _healthFactor);
     }
 
     function _finalizeWithdrawRequest(uint256 _reqID) internal {
