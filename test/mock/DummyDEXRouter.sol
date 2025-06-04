@@ -58,20 +58,23 @@ contract DummyDEXRouter is Test {
         return _w;
     }
 
-    function _dummySwapExactIn(
+    function dummySwapExactIn(
         address _caller,
         address _receiver,
         address _inToken,
         address _outToken,
         uint256 _inTokenAmount
-    ) internal returns (uint256) {
+    ) public returns (uint256) {
         ERC20(_inToken).transferFrom(_caller, address(this), _inTokenAmount);
-        uint256 _netOut = _inTokenAmount * prices[_inToken][_outToken] * ERC20(_outToken).decimals()
-            / (1e18 * ERC20(_inToken).decimals());
+        uint256 _netOut = _inTokenAmount * prices[_inToken][_outToken]
+            * Constants.convertDecimalToUnit(ERC20(_outToken).decimals())
+            / (1e18 * Constants.convertDecimalToUnit(ERC20(_inToken).decimals()));
 
         address _whaleSugarDaddy = _getTokenWhale(_outToken);
         vm.startPrank(_whaleSugarDaddy);
-        ERC20(_outToken).transferFrom(_whaleSugarDaddy, _receiver, _netOut);
+        ERC20(_outToken).transfer(_receiver, _netOut);
+        vm.stopPrank();
+        require(_netOut > 0, "!zero dummy out");
         return _netOut;
     }
 
@@ -164,7 +167,7 @@ contract DummyDEXRouter is Test {
         external
         returns (uint256 netTokenOut, uint256 netSyInterm)
     {
-        uint256 _netTokenOut = _dummySwapExactIn(msg.sender, receiver, IPendleYT(YT).PT(), output.tokenOut, netPyIn);
+        uint256 _netTokenOut = dummySwapExactIn(msg.sender, receiver, IPendleYT(YT).PT(), output.tokenOut, netPyIn);
         return (_netTokenOut, _netTokenOut);
     }
 
@@ -177,7 +180,7 @@ contract DummyDEXRouter is Test {
         LimitOrderData calldata limit
     ) external payable returns (uint256 netPtOut, uint256 netSyFee, uint256 netSyInterm) {
         (, address _pt,) = IPendleMarket(market).readTokens();
-        uint256 _netPtOut = _dummySwapExactIn(msg.sender, receiver, input.tokenIn, _pt, input.netTokenIn);
+        uint256 _netPtOut = dummySwapExactIn(msg.sender, receiver, input.tokenIn, _pt, input.netTokenIn);
         return (_netPtOut, 0, _netPtOut);
     }
 
@@ -189,7 +192,7 @@ contract DummyDEXRouter is Test {
         LimitOrderData calldata limit
     ) external returns (uint256 netTokenOut, uint256 netSyFee, uint256 netSyInterm) {
         (, address _pt,) = IPendleMarket(market).readTokens();
-        uint256 _netTokenOut = _dummySwapExactIn(msg.sender, receiver, _pt, output.tokenOut, exactPtIn);
+        uint256 _netTokenOut = dummySwapExactIn(msg.sender, receiver, _pt, output.tokenOut, exactPtIn);
         return (_netTokenOut, 0, _netTokenOut);
     }
 }

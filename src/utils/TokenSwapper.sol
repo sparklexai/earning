@@ -151,16 +151,18 @@ contract TokenSwapper is Ownable {
     // Ensure the receiver of the swap is the calling strategy
     ///////////////////////////////
     function swapWithPendleRouter(
+        address _pendleRouter,
         address _inputToken,
         address _outputToken,
         uint256 _inAmount,
         uint256 _minOut,
         bytes calldata _swapCallData
     ) external returns (uint256) {
+        address _router = _pendleRouter == Constants.ZRO_ADDR ? pendleRouteV4 : _pendleRouter;
         ERC20(_inputToken).transferFrom(msg.sender, address(this), _inAmount);
-        _approveTokenToDex(_inputToken, pendleRouteV4);
+        _approveTokenToDex(_inputToken, _router);
         uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(msg.sender);
-        address(pendleRouteV4).functionCall(_swapCallData);
+        address(_router).functionCall(_swapCallData);
         uint256 _actualOut = ERC20(_outputToken).balanceOf(msg.sender) - _outputBalBefore;
         if (applySlippageMargin(_actualOut) < _minOut) {
             revert Constants.SWAP_OUT_TOO_SMALL();

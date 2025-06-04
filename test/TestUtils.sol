@@ -7,6 +7,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {WETH} from "../interfaces/IWETH.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
+import {DummyDEXRouter} from "./mock/DummyDEXRouter.sol";
 
 contract TestUtils is Test {
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -30,6 +31,23 @@ contract TestUtils is Test {
         return _user;
     }
 
+    function _getSugarUserWithERC20(
+        DummyDEXRouter mockRouter,
+        address user,
+        address token,
+        uint256 amount,
+        uint256 _pricePerETH
+    ) internal returns (uint256) {
+        vm.startPrank(user);
+        ERC20(wETH).approve(address(mockRouter), type(uint256).max);
+        vm.stopPrank();
+
+        mockRouter.setPrices(wETH, token, _pricePerETH);
+        uint256 _out = mockRouter.dummySwapExactIn(user, user, wETH, token, amount);
+
+        return _out;
+    }
+
     function _getNextUserAddress() internal returns (address payable) {
         address payable _user = payable(address(uint160(uint256(nextUser))));
         nextUser = keccak256(abi.encodePacked(nextUser));
@@ -49,14 +67,16 @@ contract TestUtils is Test {
     }
 
     function _makeRedemptionRequest(address _user, uint256 _share, address _vault) internal returns (uint256) {
-        uint256 _ppsBefore = SparkleXVault(_vault).previewMint(10 ** SparkleXVault(_vault).decimals());
+        uint256 _ppsBefore =
+            SparkleXVault(_vault).previewMint(Constants.convertDecimalToUnit(SparkleXVault(_vault).decimals()));
 
         vm.startPrank(_user);
         ERC20(_vault).approve(_vault, type(uint256).max);
         uint256 _asset = SparkleXVault(_vault).requestRedemption(_share);
         vm.stopPrank();
 
-        uint256 _ppsAfter = SparkleXVault(_vault).previewMint(10 ** SparkleXVault(_vault).decimals());
+        uint256 _ppsAfter =
+            SparkleXVault(_vault).previewMint(Constants.convertDecimalToUnit(SparkleXVault(_vault).decimals()));
         assertTrue(_assertApproximateEq(_ppsBefore, _ppsAfter, COMP_TOLERANCE));
 
         return _asset;
@@ -115,6 +135,25 @@ contract TestUtils is Test {
         return _generousAsset;
     }
 
+    function _fundFirstDepositGenerouslyWithERC20(DummyDEXRouter _mockRouter, address _vault, uint256 _pricePerETH)
+        internal
+        returns (uint256)
+    {
+        address _generousUser = _getSugarUser();
+        uint256 _generousAsset = MIN_SHARE + 1;
+        address _asset = SparkleXVault(_vault).asset();
+        uint256 _asset2ETH =
+            _generousAsset * 1e18 * 1e18 / (_pricePerETH * Constants.convertDecimalToUnit(ERC20(_asset).decimals()));
+
+        _getSugarUserWithERC20(_mockRouter, _generousUser, _asset, _asset2ETH * 2, _pricePerETH);
+
+        vm.startPrank(_generousUser);
+        ERC20(_asset).approve(_vault, type(uint256).max);
+        SparkleXVault(_vault).deposit(_generousAsset, _generousUser);
+        vm.stopPrank();
+        return _generousAsset;
+    }
+
     function _changeWithdrawFee(address _vaultOwner, address _vault, uint256 _bps) internal {
         vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
         vm.startPrank(_vaultOwner);
@@ -154,6 +193,27 @@ contract TestUtils is Test {
         uint256 _assetAmount = bound(_amount, _low, _high);
         vm.startPrank(_user);
         ERC20(SparkleXVault(_vault).asset()).approve(_vault, type(uint256).max);
+        uint256 _share = SparkleXVault(_vault).deposit(_assetAmount, _user);
+        vm.stopPrank();
+        return (_assetAmount, _share);
+    }
+
+    function _makeVaultDepositWithMockRouter(
+        DummyDEXRouter _mockRouter,
+        address _vault,
+        address _user,
+        uint256 _pricePerETH,
+        uint256 _amountInETH,
+        uint256 _low,
+        uint256 _high
+    ) internal returns (uint256, uint256) {
+        uint256 _assetAmountInETH = bound(_amountInETH, _low, _high);
+        address _asset = SparkleXVault(_vault).asset();
+
+        uint256 _assetAmount = _getSugarUserWithERC20(_mockRouter, _user, _asset, _assetAmountInETH, _pricePerETH);
+
+        vm.startPrank(_user);
+        ERC20(_asset).approve(_vault, type(uint256).max);
         uint256 _share = SparkleXVault(_vault).deposit(_assetAmount, _user);
         vm.stopPrank();
         return (_assetAmount, _share);

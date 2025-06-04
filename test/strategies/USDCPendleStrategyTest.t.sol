@@ -13,6 +13,8 @@ import {IPPrincipalToken} from "@pendle/contracts/interfaces/IPPrincipalToken.so
 import {IPMarketV3} from "@pendle/contracts/interfaces/IPMarketV3.sol";
 import {IPRouterStatic} from "@pendle/contracts/interfaces/IPRouterStatic.sol";
 import {DummyDEXRouter} from "../mock/DummyDEXRouter.sol";
+import {DummyStrategy} from "../mock/DummyStrategy.sol";
+import {IStrategy} from "../../interfaces/IStrategy.sol";
 
 // run this test with mainnet fork
 // forge coverage --fork-url <rpc_url> --match-path USDCPendleStrategyTest -vvv --no-match-coverage "(script|test)"
@@ -22,6 +24,8 @@ contract USDCPendleStrategyTest is TestUtils {
     address public strategist;
     TokenSwapper public swapper;
     DummyDEXRouter public mockRouter;
+    address public myStrategy;
+    uint256 public usdcPerETH = 2000e18;
 
     address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address usdcWhale = 0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341; //sky:PSM
@@ -34,10 +38,17 @@ contract USDCPendleStrategyTest is TestUtils {
     address constant sUSDe_USD_Feed = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
 
     // mainnet pendle PT pool
-    IPPrincipalToken sUSDeJUL31_PT = IPPrincipalToken(0x3b3fB9C57858EF816833dC91565EFcd85D96f634);
-    address sUSDeJUL31_PT_Whale = 0x520A816aA9E220a24590862bed50E91047349142;
-    IPMarketV3 sUSDeJUL31_Market = IPMarketV3(0x4339Ffe2B7592Dc783ed13cCE310531aB366dEac);
+    IPPrincipalToken sUSDe_JUL31_PT = IPPrincipalToken(0x3b3fB9C57858EF816833dC91565EFcd85D96f634);
+    address sUSDe_JUL31_PT_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    IPMarketV3 sUSDe_JUL31_Market = IPMarketV3(0x4339Ffe2B7592Dc783ed13cCE310531aB366dEac);
+    IPPrincipalToken USDS_AUG15_PT = IPPrincipalToken(0xFfEc096c087C13Cc268497B89A613cACE4DF9A48);
+    address USDS_AUG15_PT_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    IPMarketV3 USDS_AUG15_Market = IPMarketV3(0xdacE1121e10500e9e29d071F01593fD76B000f08);
+
+    // target selectors for pendle router swap calldata
     bytes4 constant TARGET_SELECTOR_PENDLE = hex"c81f847a"; //swapExactTokenForPt()
+    bytes4 constant TARGET_SELECTOR_PENDLE2 = hex"594a88cc"; //swapExactPtForToken()
+    bytes4 constant TARGET_SELECTOR_PENDLE3 = hex"47f1de22"; //redeemPyToToken()
 
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(usdc), "SparkleXVault", "SPXV");
@@ -45,21 +56,27 @@ contract USDCPendleStrategyTest is TestUtils {
 
         swapper = new TokenSwapper();
         mockRouter = new DummyDEXRouter();
+
+        // create the testing target strategy
+        DummyStrategy usdcPendleStrategy = new DummyStrategy(address(stkVault), usdc);
+        myStrategy = address(usdcPendleStrategy);
+        strategist = TestUtils._getSugarUser();
+        usdcPendleStrategy.setStrategist(strategist);
     }
 
     function test_SwapForPT() public {
-        assertFalse(sUSDeJUL31_PT.isExpired());
+        assertFalse(sUSDe_JUL31_PT.isExpired());
 
         uint256 _testVal = 1000e6;
         uint256 _slippageAllowed = 9950;
 
         // check https://docs.pendle.finance/Developers/FAQ#how-do-i-fetch-the-pt-price
-        uint256 _pt2AssetRate = pendleRouterStatic.getPtToAssetRate(address(sUSDeJUL31_Market));
+        uint256 _pt2AssetRate = pendleRouterStatic.getPtToAssetRate(address(sUSDe_JUL31_Market));
         (int256 _usdcUsdPrice,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
         (int256 _sUSDeUSDPrice,) = swapper.getPriceFromChainLink(sUSDe_USD_Feed);
         // check https://docs.pendle.finance/Developers/Contracts/StandardizedYield#standard-sys
         uint256 _asset2SYRate = uint256(_usdcUsdPrice * 1e18 / _sUSDeUSDPrice);
-        uint256 _sUSDePT2SYRate = swapper.getPTPriceInSYFromPendle(address(sUSDeJUL31_Market), 0);
+        uint256 _sUSDePT2SYRate = swapper.getPTPriceInSYFromPendle(address(sUSDe_JUL31_Market), 0);
         uint256 _sUSDe2USDCRate = _sUSDePT2SYRate * 1e18 / _asset2SYRate;
 
         console.log(
@@ -76,7 +93,9 @@ contract USDCPendleStrategyTest is TestUtils {
 
         vm.startPrank(usdcWhale);
         ERC20(usdc).approve(address(swapper), type(uint256).max);
-        uint256 ptOut = swapper.swapWithPendleRouter(usdc, address(sUSDeJUL31_PT), _testVal, _minOut, _callData);
+        uint256 ptOut = swapper.swapWithPendleRouter(
+            Constants.ZRO_ADDR, usdc, address(sUSDe_JUL31_PT), _testVal, _minOut, _callData
+        );
         vm.stopPrank();
 
         console.log("_pt2AssetRate:%d,ptOut:%d", _pt2AssetRate, ptOut);
@@ -108,14 +127,61 @@ contract USDCPendleStrategyTest is TestUtils {
 
         DummyDEXRouter.LimitOrderData memory emptyLimit;
 
-        uint256 _outBalBefore = ERC20(address(sUSDeJUL31_PT)).balanceOf(usdcWhale);
+        uint256 _outBalBefore = ERC20(address(sUSDe_JUL31_PT)).balanceOf(usdcWhale);
         vm.startPrank(usdcWhale);
-        mockRouter.setWhales(address(sUSDeJUL31_PT), sUSDeJUL31_PT_Whale);
-        mockRouter.setPrices(usdc, mockRouter.usde(), _usdc2PTPrice);
+        mockRouter.setWhales(address(sUSDe_JUL31_PT), sUSDe_JUL31_PT_Whale);
+        mockRouter.setPrices(usdc, address(sUSDe_JUL31_PT), _usdc2PTPrice);
         ERC20(usdc).approve(address(mockRouter), type(uint256).max);
         (uint256 _out,,) =
-            mockRouter.swapExactTokenForPt(usdcWhale, address(sUSDeJUL31_Market), 0, _approxParams, _input, emptyLimit);
+            mockRouter.swapExactTokenForPt(usdcWhale, address(sUSDe_JUL31_Market), 0, _approxParams, _input, emptyLimit);
         vm.stopPrank();
-        assertEq(_out, ERC20(address(sUSDeJUL31_PT)).balanceOf(usdcWhale) - _outBalBefore);
+        assertEq(_out, ERC20(address(sUSDe_JUL31_PT)).balanceOf(usdcWhale) - _outBalBefore);
+    }
+
+    function test_Basic_Pendle_InOut(uint256 _testVal) public {
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 2 ether, 100 ether
+        );
+        _testVal = _assetVal;
+
+        _zapInWithPendlePT(myStrategy, address(sUSDe_JUL31_PT), _assetVal / 2);
+        _checkBasicInvariants(address(stkVault));
+
+        _stormOutFromPendlePT(myStrategy, address(sUSDe_JUL31_PT), 0);
+        _checkBasicInvariants(address(stkVault));
+
+        _zapInWithPendlePT(myStrategy, address(USDS_AUG15_PT), _assetVal / 2);
+        _checkBasicInvariants(address(stkVault));
+
+        // forward to market expire
+        vm.warp(block.timestamp + 86400 * 365);
+        assertTrue(USDS_AUG15_Market.isExpired());
+        _redeemAfterPendlePTExpire(myStrategy, address(USDS_AUG15_PT));
+        _checkBasicInvariants(address(stkVault));
+    }
+
+    function _zapInWithPendlePT(address _strategy, address _pendlePT, uint256 _assetAmount) internal {
+        // TODO
+        vm.startPrank(strategist);
+        IStrategy(myStrategy).allocate(_assetAmount);
+        vm.stopPrank();
+    }
+
+    function _stormOutFromPendlePT(address _strategy, address _pendlePT, uint256 _ptAmount) internal {
+        // TODO
+        vm.startPrank(strategist);
+        IStrategy(myStrategy).collect(_ptAmount == 0 ? IStrategy(myStrategy).totalAssets() : _ptAmount);
+        vm.stopPrank();
+    }
+
+    function _redeemAfterPendlePTExpire(address _strategy, address _pendlePT) internal {
+        // TODO
+        vm.startPrank(strategist);
+        IStrategy(myStrategy).collectAll();
+        vm.stopPrank();
     }
 }
