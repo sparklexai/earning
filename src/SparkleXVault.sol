@@ -382,7 +382,9 @@ contract SparkleXVault is ERC4626, Ownable {
         }
 
         (uint256 _residue,) = _checkAssetResidue(_toUsr);
-        _toUsr = _toUsr > _residue ? _residue : _toUsr;
+        if (_toUsr > _residue) {
+            revert Constants.LESS_REDEMPTION_TO_USER();
+        }
 
         delete userRedemptionRequestShares[_user];
         delete userRedemptionRequestAssets[_user];
