@@ -63,10 +63,11 @@ contract SparkleXVaultTest is TestUtils {
         uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
 
         address _user = TestUtils._getSugarUser();
+        uint256 _testVal = wETHVal / 3;
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
-        uint256 _share = stkVault.deposit(wETHVal, _user);
+        uint256 _share = stkVault.deposit(_testVal, _user);
         vm.stopPrank();
         uint256 _userShare = stkVault.balanceOf(_user);
 
@@ -84,8 +85,36 @@ contract SparkleXVaultTest is TestUtils {
         _userShare = stkVault.balanceOf(_user);
         assertEq(0, _userShare);
 
-        assertEq(wETHVal * (Constants.TOTAL_BPS - _feeBps) / Constants.TOTAL_BPS, _redeemed);
-        assertEq(wETHVal * _feeBps / Constants.TOTAL_BPS, ERC20(wETH).balanceOf(_feeRecipient));
+        assertTrue(
+            _assertApproximateEq(
+                _testVal * (Constants.TOTAL_BPS - _feeBps) / Constants.TOTAL_BPS, _redeemed, COMP_TOLERANCE
+            )
+        );
+        uint256 _feeExpected = _testVal * _feeBps / Constants.TOTAL_BPS;
+        assertTrue(_assertApproximateEq(_feeExpected, ERC20(wETH).balanceOf(_feeRecipient), COMP_TOLERANCE));
+
+        vm.startPrank(_user);
+        _share = stkVault.deposit(_testVal, _user);
+        vm.stopPrank();
+
+        DummyStrategy myStrategy1 = new DummyStrategy(wETH, address(stkVault));
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(myStrategy1), 100);
+        vm.stopPrank();
+
+        // ensure that user pay withdraw fee during request claim
+        vm.startPrank(stkVOwner);
+        myStrategy1.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy1)));
+        vm.stopPrank();
+        TestUtils._makeRedemptionRequest(_user, _share, address(stkVault));
+        assertEq(stkVault.userRedemptionRequestShares(_user), _share);
+        vm.startPrank(stkVOwner);
+        myStrategy1.collectAll();
+        vm.stopPrank();
+        vm.startPrank(_user);
+        stkVault.claimRedemptionRequest();
+        vm.stopPrank();
+        assertTrue(_assertApproximateEq(_feeExpected * 2, ERC20(wETH).balanceOf(_feeRecipient), COMP_TOLERANCE));
     }
 
     function test_Basic_ManagementFee(uint256 _feeBps) public {
@@ -224,7 +253,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(wETHVal + _generousAsset, _totalAssets);
     }
 
-    function test_Strategy_Add_Remove() public {
+    function test_Strategy_Add_Remove(uint256 _testVal) public {
         // create the first strategy
         uint256 _alloc1 = 100;
         DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));
@@ -241,6 +270,22 @@ contract SparkleXVaultTest is TestUtils {
         vm.expectRevert(Constants.WRONG_STRATEGY_TO_ADD.selector);
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), _alloc1);
+        vm.stopPrank();
+
+        _fundFirstDepositGenerously(address(stkVault));
+
+        // ensure that user can't claim withdraw request if not enough asset in vault
+        address _user = TestUtils._getSugarUser();
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
+        vm.startPrank(stkVOwner);
+        myStrategy.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy)));
+        TestUtils._makeRedemptionRequest(_user, _share, address(stkVault));
+        assertEq(_share, stkVault.userRedemptionRequestShares(_user));
+        vm.expectRevert(Constants.LESS_REDEMPTION_TO_USER.selector);
+        vm.startPrank(_user);
+        stkVault.claimRedemptionRequest();
         vm.stopPrank();
 
         // create the second strategy

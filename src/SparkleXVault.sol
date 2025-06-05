@@ -312,17 +312,23 @@ contract SparkleXVault is ERC4626, Ownable {
             _spendAllowance(owner, caller, shares);
         }
         _burn(owner, shares);
-        if (WITHDRAW_FEE_BPS > 0) {
-            uint256 _fee = assets * WITHDRAW_FEE_BPS / Constants.TOTAL_BPS;
-            assets = assets - _fee;
-            if (_fee > 0) {
-                SafeERC20.safeTransfer(ERC20(asset()), _feeRecipient, _fee);
-                emit WithdrawFeeCharged(owner, _feeRecipient, _fee);
-            }
-        }
+        assets = _chargeWithdrawFee(assets, owner);
         SafeERC20.safeTransfer(ERC20(asset()), receiver, assets);
 
         emit Withdraw(caller, receiver, owner, assets, shares);
+    }
+
+    function _chargeWithdrawFee(uint256 _assetAmount, address _shareOwner) internal returns (uint256) {
+        uint256 _adjustedAssetAmount = _assetAmount;
+        if (WITHDRAW_FEE_BPS > 0) {
+            uint256 _fee = _assetAmount * WITHDRAW_FEE_BPS / Constants.TOTAL_BPS;
+            _adjustedAssetAmount = _assetAmount - _fee;
+            if (_fee > 0) {
+                SafeERC20.safeTransfer(ERC20(asset()), _feeRecipient, _fee);
+                emit WithdrawFeeCharged(_shareOwner, _feeRecipient, _fee);
+            }
+        }
+        return _adjustedAssetAmount;
     }
 
     /**
@@ -393,6 +399,7 @@ contract SparkleXVault is ERC4626, Ownable {
         emit RedemptionRequestClaimed(_user, _share, _toUsr);
         emit Withdraw(msg.sender, _user, _user, _toUsr, _share);
 
+        _toUsr = _chargeWithdrawFee(_toUsr, _user);
         SafeERC20.safeTransfer(ERC20(asset()), _user, _toUsr);
         return _toUsr;
     }
