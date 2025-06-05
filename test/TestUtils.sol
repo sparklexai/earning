@@ -8,6 +8,7 @@ import {WETH} from "../interfaces/IWETH.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
 import {DummyDEXRouter} from "./mock/DummyDEXRouter.sol";
+import {Create3} from "./Create3.sol";
 
 contract TestUtils is Test {
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -217,5 +218,27 @@ contract TestUtils is Test {
         uint256 _share = SparkleXVault(_vault).deposit(_assetAmount, _user);
         vm.stopPrank();
         return (_assetAmount, _share);
+    }
+
+    function deployWithCreationCode(string memory _saltString, bytes memory _creationCode)
+        public
+        returns (address deployedAddress)
+    {
+        bytes32 _salt = keccak256(abi.encodePacked(_saltString));
+        deployedAddress = Create3.create3(_salt, _creationCode);
+    }
+
+    function deployWithCreationCodeAndConstructorArgs(
+        string memory _saltString,
+        bytes memory creationCode,
+        bytes memory constructionArgs
+    ) public returns (address) {
+        bytes memory _data = abi.encodePacked(creationCode, constructionArgs);
+        return deployWithCreationCode(_saltString, _data);
+    }
+
+    function addressOf(string memory _saltString) external view returns (address) {
+        bytes32 _salt = keccak256(abi.encodePacked(_saltString));
+        return Create3.addressOf(_salt);
     }
 }

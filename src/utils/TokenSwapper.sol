@@ -147,12 +147,13 @@ contract TokenSwapper is Ownable {
     ///////////////////////////////
     // Pendle swap related
     // check https://docs.pendle.finance/Developers/Contracts/PendleRouter#important-structs-in-pendlerouter
-    // MUST have off-chain to supply parameter via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
+    // MUST have off-chain to supply calldata bytes via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
     // Ensure the receiver of the swap is the calling strategy
     ///////////////////////////////
 
     /**
-     * @dev ensure the receiver of this swap is the same as msg.sender and correctly encoded in given _swapCallData
+     * @dev ensure the receiver of this swap is the same as msg.sender(strategy)
+     * @dev and correctly encoded in given _swapCallData as the first argument
      */
     function swapWithPendleRouter(
         address _pendleRouter,
@@ -162,6 +163,11 @@ contract TokenSwapper is Ownable {
         uint256 _minOut,
         bytes calldata _swapCallData
     ) external returns (uint256) {
+        address _receiverDecoded = _getReceiverFromPendleCalldata(_swapCallData);
+        if (_receiverDecoded != msg.sender) {
+            revert Constants.WRONG_SWAP_RECEIVER();
+        }
+
         address _router = _pendleRouter == Constants.ZRO_ADDR ? pendleRouteV4 : _pendleRouter;
         ERC20(_inputToken).transferFrom(msg.sender, address(this), _inAmount);
         _approveTokenToDex(_inputToken, _router);
@@ -190,5 +196,9 @@ contract TokenSwapper is Ownable {
         return pendleOracle.getPtToSyRate(
             _pendleMarket, twapDurationInSeconds > 0 ? twapDurationInSeconds : PENDLE_ORACLE_TWAP
         );
+    }
+
+    function _getReceiverFromPendleCalldata(bytes calldata _data) internal pure returns (address) {
+        return abi.decode(_data[4:36], (address));
     }
 }

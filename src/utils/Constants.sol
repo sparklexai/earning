@@ -56,6 +56,7 @@ library Constants {
     error ZERO_ASSET_TO_USER();
     error USER_REDEMPTION_NOT_CLAIMED();
     error LESS_REDEMPTION_TO_USER();
+    error WRONG_SWAP_RECEIVER();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();
