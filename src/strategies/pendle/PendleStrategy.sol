@@ -343,16 +343,6 @@ contract PendleStrategy is BaseSparkleXStrategy {
         return activePTs.values();
     }
 
-    function getPortfolioBreakdown() external view returns (address[] memory tokens, uint256[] memory values) {
-        uint256 length = activePTs.length();
-        values = new uint256[](length);
-        for (uint256 i = 0; i < length; i++) {
-            address ptToken = activePTs.at(i);
-            values[i] = getPTAmountInAsset(ptToken);
-        }
-        tokens = getActivePTs();
-    }
-
     function getAllPTAmountsInAsset() public view returns (uint256) {
         uint256 totalPTAmountInAsset;
         uint256 length = activePTs.length();

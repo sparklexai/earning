@@ -57,9 +57,12 @@ contract USDCPendleStrategyTest is TestUtils {
     ///////////////////////////////
     // sUSDe JUL31 market
     IPPrincipalToken PT_ADDR1 = IPPrincipalToken(0x3b3fB9C57858EF816833dC91565EFcd85D96f634);
+    address YT_ADDR1 = 0xb7E51D15161C49C823f3951D579DEd61cD27272B;
     IPMarketV3 MARKET_ADDR1 = IPMarketV3(0x4339Ffe2B7592Dc783ed13cCE310531aB366dEac);
     address constant PT1_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address constant YIELD_TOKEN_FEED1 = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
+    uint256 public constant USDC_TO_PT1_DUMMY_PRICE = 1010000000000000000; //1.01
+    address public constant UNDERLYING_YIELD_ADDR1 = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
 
     // USDS AUG15 market
     IPPrincipalToken PT_ADDR2 = IPPrincipalToken(0xFfEc096c087C13Cc268497B89A613cACE4DF9A48);
@@ -67,6 +70,8 @@ contract USDCPendleStrategyTest is TestUtils {
     IPMarketV3 MARKET_ADDR2 = IPMarketV3(0xdacE1121e10500e9e29d071F01593fD76B000f08);
     address constant PT2_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address constant YIELD_TOKEN_FEED2 = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
+    uint256 public constant USDC_TO_PT2_DUMMY_PRICE = 1010000000000000000; //1.01
+    address public constant UNDERLYING_YIELD_ADDR2 = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
 
     ///////////////////////////////
     // target selectors for pendle router swap calldata
@@ -85,8 +90,6 @@ contract USDCPendleStrategyTest is TestUtils {
 
         swapper = new TokenSwapper();
         mockRouter = new DummyDEXRouter();
-
-        (myStrategy, strategist) = _createPendleStrategy(false);
     }
 
     function test_Mock_DummySwap(uint256 _inAmount) public {
@@ -98,8 +101,7 @@ contract USDCPendleStrategyTest is TestUtils {
 
         uint256 _outBalBefore = ERC20(address(PT_ADDR1)).balanceOf(usdcWhale);
         vm.startPrank(usdcWhale);
-        mockRouter.setWhales(address(PT_ADDR1), PT1_Whale);
-        mockRouter.setPrices(usdc, address(PT_ADDR1), _usdc2PTPrice);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, _usdc2PTPrice);
         ERC20(usdc).approve(address(mockRouter), type(uint256).max);
         (uint256 _out,,) = mockRouter.swapExactTokenForPt(
             usdcWhale, address(MARKET_ADDR1), 0, _pendleSwapApproxParams, _input, emptyLimit
@@ -122,16 +124,14 @@ contract USDCPendleStrategyTest is TestUtils {
         // check https://docs.pendle.finance/Developers/FAQ#how-do-i-fetch-the-pt-price
         uint256 _pt2AssetRate = pendleRouterStatic.getPtToAssetRate(address(MARKET_ADDR1));
         (int256 _usdcUsdPrice,,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
-        (int256 _sUSDeUSDPrice,,) = swapper.getPriceFromChainLink(YIELD_TOKEN_FEED1);
+        (int256 _yieldUSDPrice,,) = swapper.getPriceFromChainLink(YIELD_TOKEN_FEED1);
         // check https://docs.pendle.finance/Developers/Contracts/StandardizedYield#standard-sys
-        uint256 _asset2SYRate = uint256(_usdcUsdPrice * 1e18 / _sUSDeUSDPrice);
-        uint256 _sUSDePT2SYRate = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), 0);
-        uint256 _sUSDe2USDCRate = _sUSDePT2SYRate * 1e18 / _asset2SYRate;
+        uint256 _asset2SYRate = uint256(_usdcUsdPrice * 1e18 / _yieldUSDPrice);
+        uint256 _PT2SYRate = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), 0);
+        uint256 _yield2USDCRate = _PT2SYRate * 1e18 / _asset2SYRate;
 
-        console.log(
-            "_asset2SYRate:%d,_sUSDePT2SYRate:%d,_sUSDe2USDCRate:%d", _asset2SYRate, _sUSDePT2SYRate, _sUSDe2USDCRate
-        );
-        assertTrue(_assertApproximateEq(_pt2AssetRate, _sUSDe2USDCRate, BIGGER_TOLERANCE));
+        console.log("_asset2SYRate:%d,_PT2SYRate:%d,_yield2USDCRate:%d", _asset2SYRate, _PT2SYRate, _yield2USDCRate);
+        assertTrue(_assertApproximateEq(_pt2AssetRate, _yield2USDCRate, BIGGER_TOLERANCE));
 
         // call SDK to get bytes
         uint256 _minOut = 913658521822428953199; // max allowed slippage set in SDK with 10%
@@ -154,6 +154,7 @@ contract USDCPendleStrategyTest is TestUtils {
     }
 
     function test_Basic_Pendle_InOut(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(false);
         _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
 
         address _user = TestUtils._getSugarUser();
@@ -162,22 +163,20 @@ contract USDCPendleStrategyTest is TestUtils {
             mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
         );
 
-        _addPTMarket(address(MARKET_ADDR1), mockRouter.susde(), YIELD_TOKEN_FEED1, 100);
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
         _zapInWithPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicUSDCAmount);
         _checkBasicInvariants(address(stkVault));
         uint256 _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         console.log("_totalAssetsInStrategyAfterBuy1:%d", _totalAssetsInStrategy);
         assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 2 * MIN_SHARE));
 
-        _stormOutFromPendlePT(
-            myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), ERC20(address(PT_ADDR1)).balanceOf(myStrategy)
-        );
+        _stormOutFromPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicPTAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         console.log("_totalAssetsInStrategyAfterSell1:%d", _totalAssetsInStrategy);
         assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 2 * MIN_SHARE));
 
-        _addPTMarket(address(MARKET_ADDR2), mockRouter.usds(), YIELD_TOKEN_FEED2, 100);
+        _addPTMarket(address(MARKET_ADDR2), UNDERLYING_YIELD_ADDR2, YIELD_TOKEN_FEED2, 100);
         _zapInWithPendlePT(myStrategy, address(PT_ADDR2), address(MARKET_ADDR2), magicUSDCAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
@@ -191,12 +190,13 @@ contract USDCPendleStrategyTest is TestUtils {
             _assertApproximateEq(_totalAssetsInStrategy, (magicUSDCAmount + _residueOfPT1AmountInAsset), 2 * MIN_SHARE)
         );
 
+        address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
+        assertEq(2, _activePTMarkets.length);
+
         // forward to market expire
         vm.warp(block.timestamp + Constants.ONE_YEAR);
         assertTrue(MARKET_ADDR2.isExpired());
-        _redeemAfterPendlePTExpire(
-            myStrategy, address(PT_ADDR2), YT_ADDR2, ERC20(address(PT_ADDR2)).balanceOf(myStrategy)
-        );
+        _redeemAfterPendlePTExpire(myStrategy, address(PT_ADDR2), YT_ADDR2, magicPTAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         _residueOfPT1AmountInAsset = PendleStrategy(myStrategy).getPTAmountInAsset(address(PT_ADDR1));
@@ -215,6 +215,124 @@ contract USDCPendleStrategyTest is TestUtils {
                 2 * MIN_SHARE
             )
         );
+
+        vm.expectRevert(Constants.PT_STILL_IN_USE.selector);
+        vm.startPrank(strategist);
+        IStrategy(myStrategy).collectAll();
+        vm.stopPrank();
+    }
+
+    function test_Remove_PTMarket_BeforeExpire(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        uint256 _ptWeight = 100;
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _ptWeight);
+        (,,,,, uint256 _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(_ptWeight, _addedWeight);
+
+        address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
+        assertEq(1, _activePTMarkets.length);
+
+        // ensure no same PT added
+        vm.expectRevert(Constants.PT_ALREADY_EXISTS.selector);
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        _zapInWithPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+        uint256 _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
+        uint256 _pt1Balance = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
+        uint256 _pt1PriceFromStrategy = PendleStrategy(myStrategy).getPTPrice(address(PT_ADDR1));
+        console.log("_totalAssetsInStrategyAfterBuy1:%d,_assetAmount:%d", _totalAssetsInStrategy, _assetAmount);
+        console.log("_pt1Balance:%d,_pt1PriceFromStrategy:%d", _pt1Balance, _pt1PriceFromStrategy);
+        assertTrue(
+            _assertApproximateEq(
+                _totalAssetsInStrategy, PendleStrategy(myStrategy).getPTAmountInAsset(address(PT_ADDR1)), 2 * MIN_SHARE
+            )
+        );
+
+        // remove PT market before expire
+        _prepareSwapForMockRouter(
+            mockRouter,
+            address(PT_ADDR1),
+            usdc,
+            usdcWhale,
+            (Constants.ONE_ETHER * Constants.ONE_ETHER / USDC_TO_PT1_DUMMY_PRICE)
+        );
+        bytes memory _callData = _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _pt1Balance);
+        _removePTMarket(address(PT_ADDR1), _callData);
+        _checkBasicInvariants(address(stkVault));
+        (,,,,, _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(0, _addedWeight);
+
+        _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
+        assertEq(0, _activePTMarkets.length);
+
+        uint256 _assetInStrategy = ERC20(usdc).balanceOf(myStrategy);
+        uint256 _assetInVault = ERC20(usdc).balanceOf(address(stkVault));
+        vm.startPrank(strategist);
+        IStrategy(myStrategy).collect(_assetInStrategy);
+        vm.stopPrank();
+        assertEq(_assetInStrategy, ERC20(usdc).balanceOf(address(stkVault)) - _assetInVault);
+
+        // ensure removed PT can't be removed again
+        vm.expectRevert(Constants.PT_NOT_FOUND.selector);
+        _removePTMarket(address(PT_ADDR1), _callData);
+    }
+
+    function test_Remove_PTMarket_AfterExpire(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        uint256 _ptWeight = 100;
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _ptWeight);
+        (,,,,, uint256 _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(_ptWeight, _addedWeight);
+
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        _zapInWithPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+        uint256 _pt1Balance = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
+
+        address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
+        assertEq(1, _activePTMarkets.length);
+
+        // forward to market expire
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        assertTrue(MARKET_ADDR1.isExpired());
+
+        // remove PT market after expire
+        _prepareSwapForMockRouter(mockRouter, address(PT_ADDR1), usdc, usdcWhale, 150e16);
+        bytes memory _callData = _generateSwapCalldataForRedeem(myStrategy, YT_ADDR1, 0, _pt1Balance);
+        _removePTMarket(address(PT_ADDR1), _callData);
+        _checkBasicInvariants(address(stkVault));
+        (,,,,, _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(0, _addedWeight);
+
+        _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
+        assertEq(0, _activePTMarkets.length);
+
+        uint256 _assetInStrategy = IStrategy(myStrategy).totalAssets();
+        uint256 _assetInVault = ERC20(usdc).balanceOf(address(stkVault));
+        vm.startPrank(strategist);
+        IStrategy(myStrategy).collectAll();
+        vm.stopPrank();
+        assertEq(_assetInStrategy, ERC20(usdc).balanceOf(address(stkVault)) - _assetInVault);
+
+        // ensure expired PT can't be added
+        vm.expectRevert(Constants.PT_ALREADY_MATURED.selector);
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
     }
 
     function _zapInWithPendlePT(address _strategy, address _pendlePT, address _pendleMarket, uint256 _assetAmount)
@@ -245,9 +363,8 @@ contract USDCPendleStrategyTest is TestUtils {
     {
         bytes memory _callData;
 
-        if (_pendlePT == address(PT_ADDR1)) {
+        if (_pendlePT == address(PT_ADDR1) && _ptAmount == magicPTAmount) {
             // slippage 1% with aggragator enabled
-            _ptAmount = magicPTAmount;
             _callData =
                 hex"594a88cc00000000000000000000000063670e16de53f8eb1cef55a46120bf137c4020f40000000000000000000000004339ffe2b7592dc783ed13cce310531ab366deac0000000000000000000000000000000000000000000000410d586a20a4c0000000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000000000000045fba7f30000000000000000000000009d39a5de30e57443bff2a8307a4256c8797a3497000000000000000000000000fe6228a3866426e96611ed7a3d0dee918244fcb300000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000010000000000000000000000006131b5fae19ea4f9d964eac0408e4408b66337b5000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000a04e21fd0e900000000000000000000000000000000000000000000000000000000000000200000000000000000000000006e4141d33021b52c91c28608403db4a0ffb50ec6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000007400000000000000000000000000000000000000000000000000000000000000440000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000009d39a5de30e57443bff2a8307a4256c8797a3497000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000888888888889758f76e7103c6cbf23abbf58f946000000000000000000000000000000000000000000000000000000007fffffff00000000000000000000000000000000000000000000000000000000000003e00000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000000404c134a970000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000e0e0e08a6a4b9dc7bd67bcb7aade5cf48157d444000000000000000000000000000000000000000000000037b69344c77bf9677a0000000000000000000000009d39a5de30e57443bff2a8307a4256c8797a3497000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec70000000000000000000000000000000000000000000346dc5d638865000000c80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000404c134a970000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000e0e0e08a6a4b9dc7bd67bcb7aade5cf48157d44400000000000000000000000000000000000000000000000000000000480fb9e5000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec70000000000000000000000000000000000000000000053e2d6238da300000032000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000004b9000000000000000000000000481a8e030000000000000000000000009d39a5de30e57443bff2a8307a4256c8797a3497000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000001e00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000888888888889758f76e7103c6cbf23abbf58f946000000000000000000000000000000000000000000000037b69344c77bf9677a000000000000000000000000000000000000000000000000000000004761f81c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000022000000000000000000000000000000000000000000000000000000000000000010000000000000000000000006e4141d33021b52c91c28608403db4a0ffb50ec60000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000037b69344c77bf9677a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000027d7b22536f75726365223a2250656e646c65222c22416d6f756e74496e555344223a22313230392e37303431363738343738393138222c22416d6f756e744f7574555344223a22313231302e32323736343939303331333131222c22526566657272616c223a22222c22466c616773223a302c22416d6f756e744f7574223a2231323039363939383433222c2254696d657374616d70223a313734393131313235322c22526f7574654944223a2263366431333566622d646232632d343463662d393530612d3461643165396363623466613a64366230623639362d303335642d346137342d626463622d303430383364656333646339222c22496e74656772697479496e666f223a7b224b65794944223a2231222c225369676e6174757265223a22546b4872367a5368473769756241425867765151524a7330517363664b322f344c784e39692b4570556a5a6474536f70363755465637464f54375a7846465572516d4a6d756e4e3136344f364a47427977642b6b3041796130775042704d397632564c35466c6249566a2b7277677130626f31612b7969774f71416c7447564a56703064526a687a506e6b37334575487459596652686956436544433751343449535741476b7653796164595a5a6f556e4d70662f34374b5739653235474b36467a5866506657742f734f3863445a4277566d5758686550686b44387076344465486370685a556d6a39384269786d4769694d3569445631656f3254706e62745a54665463427a78526774314b374c564b44324d4f6f45764b6b2b454b76646764416b47646d5a55516243595537312f476e356a62616b687177354b36497375736e6175674e675341344f504c2b76485a65724261413d3d227d7d000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
         } else {
@@ -265,9 +382,8 @@ contract USDCPendleStrategyTest is TestUtils {
     {
         bytes memory _callData;
 
-        if (_pendlePT == address(PT_ADDR2)) {
+        if (_pendlePT == address(PT_ADDR2) && _ptAmount == magicPTAmount) {
             // slippage 1% with aggragator enabled
-            _ptAmount = magicPTAmount;
             _callData =
                 hex"47f1de2200000000000000000000000063670e16de53f8eb1cef55a46120bf137c4020f40000000000000000000000004eb0bb058bcfeac8a2b3c2fc3cae2b8ad7ff7f6e0000000000000000000000000000000000000000000000410d586a20a4c000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000000000000046cf7100000000000000000000000000dc035d45d973e3ec169d2276ddab16f1e407384f000000000000000000000000fe6228a3866426e96611ed7a3d0dee918244fcb300000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000060000000000000000000000006a000f20005980200259b80c51020030400010680000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000002a4e3ead59e000000000000000000000000000010036c0190e009a000d0fc3541100a07380a000000000000000000000000dc035d45d973e3ec169d2276ddab16f1e407384f000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000425a698af856200000000000000000000000000000000000000000000000000000000000004839fd800000000000000000000000000000000000000000000000000000000048f4c2000e384003182143348bc1727135e6fb0800000000000000000000000001596a77000000000000000000000000888888888889758f76e7103c6cbf23abbf58f9460000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000001800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000100a188eec8f81263234da3622a406892f3d630f98c000000a000000000ff030000000000000000000000000000000000000000000000000000000000008d7ef9bb0000000000000000000000006a000f20005980200259b80c51020030400010680000000000000000000000000000000000000000000000000000000048f4c2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e8d4a5100000000000000000000000000000000000000000000000000000000000";
         } else {
@@ -382,7 +498,7 @@ contract USDCPendleStrategyTest is TestUtils {
         vm.stopPrank();
     }
 
-    function _removePTMarket(address _pendlePT, bytes calldata _swapData) internal {
+    function _removePTMarket(address _pendlePT, bytes memory _swapData) internal {
         vm.startPrank(strategist);
         PendleStrategy(myStrategy).removePT(_pendlePT, _swapData);
         vm.stopPrank();

@@ -45,6 +45,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     // events
     ///////////////////////////////
     event EtherFiHelperChanged(address indexed _old, address indexed _new);
+    event SwapLossForDeleverage(address indexed _inToken, address indexed _outToken, uint256 _actual, uint256 _loss);
 
     constructor(address vault) BaseAAVEStrategy(ERC20(wETH), vault, ERC20(address(weETH)), ERC20(wETH), aWeETH) {
         _approveToken(address(_borrowToken), address(aavePool));
@@ -354,9 +355,12 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             );
 
             uint256 _bestInTheory = _convertSupplyToAsset(_cappedIn);
-            _requestWithdrawFromEtherFi(
-                _supplyToken.balanceOf(address(this)), (_bestInTheory > _actualOut ? _bestInTheory - _actualOut : 0)
-            );
+            uint256 _swapLoss = (_bestInTheory > _actualOut ? _bestInTheory - _actualOut : 0);
+            emit SwapLossForDeleverage(address(_supplyToken), address(_borrowToken), _actualOut, _swapLoss);
+            uint256 _supplyResidueValue = _supplyToken.balanceOf(address(this));
+            if (_supplyResidueValue > 0) {
+                _requestWithdrawFromEtherFi(_supplyResidueValue, _swapLoss);
+            }
 
             if (_borrowToken.balanceOf(address(this)) < _toRepay) {
                 revert Constants.FAIL_TO_REPAY_FLASHLOAN_DELEVERAGE();

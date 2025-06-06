@@ -241,4 +241,15 @@ contract TestUtils is Test {
         bytes32 _salt = keccak256(abi.encodePacked(_saltString));
         return Create3.addressOf(_salt);
     }
+
+    function _prepareSwapForMockRouter(
+        DummyDEXRouter _mockRouter,
+        address _inToken,
+        address _outToken,
+        address _outTokenWhale,
+        uint256 _priceInE18
+    ) internal {
+        _mockRouter.setWhales(_outToken, _outTokenWhale);
+        _mockRouter.setPrices(_inToken, _outToken, _priceInE18);
+    }
 }

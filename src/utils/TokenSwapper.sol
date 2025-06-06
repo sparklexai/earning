@@ -21,7 +21,7 @@ contract TokenSwapper is Ownable {
     ///////////////////////////////
     // member storage
     ///////////////////////////////
-    uint256 public SWAP_SLIPPAGE_BPS = 9960;
+    uint256 public SWAP_SLIPPAGE_BPS = 9920;
     uint32 public constant PENDLE_ORACLE_TWAP = 900;
 
     ///////////////////////////////
