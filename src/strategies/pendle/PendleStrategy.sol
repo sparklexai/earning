@@ -31,7 +31,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     // Constants and State Variables
     ///////////////////////////////
     address public _pendleRouter;
-    address public _assetOracle;
+    mapping(address => address) _assetOracles;
 
     // Pendle contract addresses (Ethereum mainnet)
     address public constant PENDLE_ROUTER_V4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
@@ -49,12 +49,13 @@ contract PendleStrategy is BaseSparkleXStrategy {
     // Events
     ///////////////////////////////
     event PTAdded(
-        address indexed ptToken, address indexed market, address indexed underlyingYieldToken, uint256 weight
+        address indexed market, address indexed underlyingYieldToken, address indexed _caller, uint256 weight
     );
-    event PTRemoved(address indexed ptToken);
-    event PTTokensPurchased(address indexed ptToken, uint256 assetAmount, uint256 ptAmount);
-    event PTTokensSold(address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
-    event PTTokensRedeemed(address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
+    event PTRemoved(address indexed ptToken, address indexed _caller);
+    event PTTokensPurchased(address indexed assetToken, address indexed ptToken, uint256 assetAmount, uint256 ptAmount);
+    event PTTokensSold(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
+    event PTTokensRedeemed(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
+    event AssetOracleAdded(address indexed assetToken, address indexed oracle);
 
     constructor(ERC20 token, address vault, address pendleRouter, address assetOracle)
         BaseSparkleXStrategy(token, vault)
@@ -62,8 +63,18 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (assetOracle == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
-        _assetOracle = assetOracle;
+        _assetOracles[address(token)] = assetOracle;
+        emit AssetOracleAdded(address(token), assetOracle);
+
         _pendleRouter = pendleRouter == Constants.ZRO_ADDR ? PENDLE_ROUTER_V4 : pendleRouter;
+    }
+
+    function setAssetOracle(address _asset, address _oracle) external onlyOwner {
+        if (_oracle == Constants.ZRO_ADDR || _asset == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
+        _assetOracles[_asset] = _oracle;
+        emit AssetOracleAdded(_asset, _oracle);
     }
 
     ///////////////////////////////
@@ -119,7 +130,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
      */
     function addPT(address marketAddress, address underlyingYieldToken, address underlyingOracleAddress, uint256 weight)
         external
-        onlyStrategist
+        onlyOwner
     {
         if (
             marketAddress == Constants.ZRO_ADDR || underlyingYieldToken == Constants.ZRO_ADDR
@@ -149,15 +160,15 @@ contract PendleStrategy is BaseSparkleXStrategy {
             targetWeight: weight
         });
         activePTs.add(address(_ptToken));
-        emit PTAdded(address(_ptToken), marketAddress, underlyingYieldToken, weight);
+        emit PTAdded(marketAddress, underlyingYieldToken, msg.sender, weight);
     }
 
     /**
      * @notice Remove a Pendle market specified by given PT token from this strategy
-     * @dev all PT of given market held in this strategy will be swapped back to asset
+     * @dev all PT of given market held in this strategy will be swapped back to asset of this strategy
      * @param ptToken PT token address of the pendle market to be removed
      */
-    function removePT(address ptToken, bytes calldata _swapData) external onlyStrategist {
+    function removePT(address ptToken, bytes calldata _swapData) external onlyOwner {
         PTInfo memory ptInfo = ptInfos[ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
@@ -166,16 +177,16 @@ contract PendleStrategy is BaseSparkleXStrategy {
         uint256 _ptBalanace = ERC20(ptToken).balanceOf(address(this));
         if (_ptBalanace > 0) {
             if (IPMarketV3(ptInfo.market).isExpired()) {
-                redeemPTForAsset(ptToken, _ptBalanace, _swapData);
+                redeemPTForAsset(address(_asset), ptToken, _ptBalanace, _swapData);
             } else {
-                sellPTForAsset(ptToken, _ptBalanace, _swapData);
+                sellPTForAsset(address(_asset), ptToken, _ptBalanace, _swapData);
             }
         }
 
         activePTs.remove(ptToken);
         delete ptInfos[ptToken];
 
-        emit PTRemoved(ptToken);
+        emit PTRemoved(ptToken, msg.sender);
     }
 
     ///////////////////////////////
@@ -188,7 +199,10 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @param assetAmount Amount of USDC to spend
      * @param _swapData calldata from pendle SDK
      */
-    function buyPTWithAsset(address ptToken, uint256 assetAmount, bytes calldata _swapData) external onlyStrategist {
+    function buyPTWithAsset(address _assetToken, address ptToken, uint256 assetAmount, bytes calldata _swapData)
+        external
+        onlyStrategistOrOwner
+    {
         PTInfo memory ptInfo = ptInfos[ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
@@ -202,16 +216,16 @@ contract PendleStrategy is BaseSparkleXStrategy {
         }
 
         assetAmount = _capAmountByBalance(_asset, assetAmount, false);
-        uint256 _minOut = _getMinExpectedPT(ptToken, assetAmount);
+        uint256 _minOut = _getMinExpectedPT(_assetToken, ptToken, assetAmount);
         bytes4 _funcSelector = _getFunctionSelector(_swapData);
         if (_funcSelector != TARGET_SELECTOR_BUY) {
             revert Constants.INVALID_SWAP_CALLDATA();
         }
-        _approveToken(address(_asset), _swapper);
+        _approveToken(_assetToken, _swapper);
         uint256 ptReceived = TokenSwapper(_swapper).swapWithPendleRouter(
-            _pendleRouter, address(_asset), ptToken, assetAmount, _minOut, _swapData
+            _pendleRouter, _assetToken, ptToken, assetAmount, _minOut, _swapData
         );
-        emit PTTokensPurchased(ptToken, assetAmount, ptReceived);
+        emit PTTokensPurchased(_assetToken, ptToken, assetAmount, ptReceived);
     }
 
     /**
@@ -220,7 +234,10 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @param ptAmount Amount of PT tokens to sell
      * @param _swapData calldata from pendle SDK
      */
-    function sellPTForAsset(address ptToken, uint256 ptAmount, bytes calldata _swapData) public onlyStrategist {
+    function sellPTForAsset(address _assetToken, address ptToken, uint256 ptAmount, bytes calldata _swapData)
+        public
+        onlyStrategistOrOwner
+    {
         PTInfo memory ptInfo = ptInfos[ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
@@ -228,8 +245,8 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (IPMarketV3(ptInfo.market).isExpired()) {
             revert Constants.PT_ALREADY_MATURED();
         }
-        uint256 assetAmount = _swapPTForAsset(ptToken, ptAmount, _swapData, TARGET_SELECTOR_SELL);
-        emit PTTokensSold(ptToken, ptAmount, assetAmount);
+        uint256 assetAmount = _swapPTForAsset(_assetToken, ptToken, ptAmount, _swapData, TARGET_SELECTOR_SELL);
+        emit PTTokensSold(_assetToken, ptToken, ptAmount, assetAmount);
     }
 
     /**
@@ -238,7 +255,10 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @param ptAmount Amount of PT tokens to redeem
      * @param _swapData calldata from pendle SDK
      */
-    function redeemPTForAsset(address ptToken, uint256 ptAmount, bytes calldata _swapData) public onlyStrategist {
+    function redeemPTForAsset(address _assetToken, address ptToken, uint256 ptAmount, bytes calldata _swapData)
+        public
+        onlyStrategistOrOwner
+    {
         PTInfo memory ptInfo = ptInfos[ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
@@ -246,27 +266,30 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (!IPMarketV3(ptInfo.market).isExpired()) {
             revert Constants.PT_NOT_MATURED();
         }
-        uint256 assetAmount = _swapPTForAsset(ptToken, ptAmount, _swapData, TARGET_SELECTOR_REDEEM);
-        emit PTTokensRedeemed(ptToken, ptAmount, assetAmount);
+        uint256 assetAmount = _swapPTForAsset(_assetToken, ptToken, ptAmount, _swapData, TARGET_SELECTOR_REDEEM);
+        emit PTTokensRedeemed(_assetToken, ptToken, ptAmount, assetAmount);
     }
 
     ///////////////////////////////
     // Internal Functions
     ///////////////////////////////
 
-    function _swapPTForAsset(address ptToken, uint256 ptAmount, bytes calldata _swapData, bytes4 _targetSelector)
-        internal
-        returns (uint256)
-    {
+    function _swapPTForAsset(
+        address _assetToken,
+        address ptToken,
+        uint256 ptAmount,
+        bytes calldata _swapData,
+        bytes4 _targetSelector
+    ) internal returns (uint256) {
         ptAmount = _capAmountByBalance(ERC20(ptToken), ptAmount, false);
-        uint256 _minOut = _getMinExpectedAsset(ptToken, ptAmount);
+        uint256 _minOut = _getMinExpectedAsset(_assetToken, ptToken, ptAmount);
         bytes4 _funcSelector = _getFunctionSelector(_swapData);
         if (_funcSelector != _targetSelector) {
             revert Constants.INVALID_SWAP_CALLDATA();
         }
         _approveToken(ptToken, _swapper);
         return TokenSwapper(_swapper).swapWithPendleRouter(
-            _pendleRouter, ptToken, address(_asset), ptAmount, _minOut, _swapData
+            _pendleRouter, ptToken, _assetToken, ptAmount, _minOut, _swapData
         );
     }
 
@@ -278,24 +301,41 @@ contract PendleStrategy is BaseSparkleXStrategy {
         return Constants.ONE_ETHER;
     }
 
-    function _getMinExpectedPT(address _ptToken, uint256 _assetIn) internal view returns (uint256) {
-        uint256 _outInTheory = _getAmountInPT(_ptToken, _assetIn);
+    function _getMinExpectedPT(address _assetToken, address _ptToken, uint256 _assetIn)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 _outInTheory = _getAmountInPT(_assetToken, _ptToken, _assetIn);
         return _outInTheory;
     }
 
-    function _getMinExpectedAsset(address _ptToken, uint256 _ptIn) internal view returns (uint256) {
-        uint256 _outInTheory = _getAmountInAsset(_ptToken, _ptIn);
+    function _getMinExpectedAsset(address _assetToken, address _ptToken, uint256 _ptIn)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 _outInTheory = _getAmountInAsset(_assetToken, _ptToken, _ptIn);
         return _outInTheory;
     }
 
-    function _getAmountInAsset(address ptToken, uint256 ptAmount) internal view returns (uint256) {
-        return ptAmount * getPTPrice(ptToken) * Constants.convertDecimalToUnit(_asset.decimals())
+    function _getAmountInAsset(address _assetToken, address ptToken, uint256 ptAmount)
+        internal
+        view
+        returns (uint256)
+    {
+        return ptAmount * getPTPriceInAsset(_assetToken, ptToken)
+            * Constants.convertDecimalToUnit(ERC20(_assetToken).decimals())
             / (Constants.convertDecimalToUnit(ERC20(ptToken).decimals()) * Constants.ONE_ETHER);
     }
 
-    function _getAmountInPT(address ptToken, uint256 assetAmount) internal view returns (uint256) {
+    function _getAmountInPT(address _assetToken, address ptToken, uint256 assetAmount)
+        internal
+        view
+        returns (uint256)
+    {
         return assetAmount * Constants.ONE_ETHER * Constants.convertDecimalToUnit(ERC20(ptToken).decimals())
-            / (Constants.convertDecimalToUnit(_asset.decimals()) * getPTPrice(ptToken));
+            / (Constants.convertDecimalToUnit(ERC20(_assetToken).decimals()) * getPTPriceInAsset(_assetToken, ptToken));
     }
 
     function _getFunctionSelector(bytes calldata _data) internal pure returns (bytes4) {
@@ -315,7 +355,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (ptBalance == 0) {
             return ptBalance;
         } else {
-            return _getAmountInAsset(ptToken, ptBalance);
+            return _getAmountInAsset(address(_asset), ptToken, ptBalance);
         }
     }
 
@@ -323,6 +363,10 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @dev calculate the price of PT in asset deomination scaled by 1e18
      */
     function getPTPrice(address ptToken) public view returns (uint256) {
+        return getPTPriceInAsset(address(_asset), ptToken);
+    }
+
+    function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
         PTInfo memory ptInfo = ptInfos[ptToken];
         // 1:1 value at maturity
         uint256 _ptPriceInSY = IPMarketV3(ptInfo.market).isExpired()
@@ -334,7 +378,8 @@ contract PendleStrategy is BaseSparkleXStrategy {
         // ensure asset and underlying oracles return prices in same base unit like USD
         (int256 _underlyingPrice,, uint8 _decimal) =
             TokenSwapper(_swapper).getPriceFromChainLink(ptInfo.underlyingOracle);
-        (int256 _assetPrice,, uint8 _assetPriceDecimal) = TokenSwapper(_swapper).getPriceFromChainLink(_assetOracle);
+        (int256 _assetPrice,, uint8 _assetPriceDecimal) =
+            TokenSwapper(_swapper).getPriceFromChainLink(_assetOracles[_assetToken]);
         return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * uint256(_underlyingPrice)
             / (Constants.convertDecimalToUnit(_decimal) * uint256(_assetPrice));
     }

@@ -28,6 +28,7 @@ contract USDCPendleStrategyTest is TestUtils {
     uint256 public usdcPerETH = 2000e18;
     uint256 public magicUSDCAmount = 1234567890;
     uint256 public magicPTAmount = 1200e18;
+    address public strategyOwner;
     DummyDEXRouter.ApproxParams public _pendleSwapApproxParams = DummyDEXRouter.ApproxParams({
         guessMin: 0,
         guessMax: type(uint256).max,
@@ -164,20 +165,20 @@ contract USDCPendleStrategyTest is TestUtils {
         );
 
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
-        _zapInWithPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicUSDCAmount);
+        _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicUSDCAmount);
         _checkBasicInvariants(address(stkVault));
         uint256 _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         console.log("_totalAssetsInStrategyAfterBuy1:%d", _totalAssetsInStrategy);
         assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 2 * MIN_SHARE));
 
-        _stormOutFromPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicPTAmount);
+        _stormOutFromPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicPTAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         console.log("_totalAssetsInStrategyAfterSell1:%d", _totalAssetsInStrategy);
         assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 2 * MIN_SHARE));
 
         _addPTMarket(address(MARKET_ADDR2), UNDERLYING_YIELD_ADDR2, YIELD_TOKEN_FEED2, 100);
-        _zapInWithPendlePT(myStrategy, address(PT_ADDR2), address(MARKET_ADDR2), magicUSDCAmount);
+        _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR2), address(MARKET_ADDR2), magicUSDCAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         uint256 _residueOfPT1AmountInAsset = PendleStrategy(myStrategy).getPTAmountInAsset(address(PT_ADDR1));
@@ -196,7 +197,7 @@ contract USDCPendleStrategyTest is TestUtils {
         // forward to market expire
         vm.warp(block.timestamp + Constants.ONE_YEAR);
         assertTrue(MARKET_ADDR2.isExpired());
-        _redeemAfterPendlePTExpire(myStrategy, address(PT_ADDR2), YT_ADDR2, magicPTAmount);
+        _redeemAfterPendlePTExpire(usdc, myStrategy, address(PT_ADDR2), YT_ADDR2, magicPTAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         _residueOfPT1AmountInAsset = PendleStrategy(myStrategy).getPTAmountInAsset(address(PT_ADDR1));
@@ -245,7 +246,7 @@ contract USDCPendleStrategyTest is TestUtils {
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
 
         _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
-        _zapInWithPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+        _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
         uint256 _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         uint256 _pt1Balance = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
         uint256 _pt1PriceFromStrategy = PendleStrategy(myStrategy).getPTPrice(address(PT_ADDR1));
@@ -302,7 +303,7 @@ contract USDCPendleStrategyTest is TestUtils {
         assertEq(_ptWeight, _addedWeight);
 
         _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
-        _zapInWithPendlePT(myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+        _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
         uint256 _pt1Balance = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
 
         address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
@@ -335,9 +336,13 @@ contract USDCPendleStrategyTest is TestUtils {
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
     }
 
-    function _zapInWithPendlePT(address _strategy, address _pendlePT, address _pendleMarket, uint256 _assetAmount)
-        internal
-    {
+    function _zapInWithPendlePT(
+        address _assetToken,
+        address _strategy,
+        address _pendlePT,
+        address _pendleMarket,
+        uint256 _assetAmount
+    ) internal {
         bytes memory _callData;
 
         if (_pendlePT == address(PT_ADDR1) && _assetAmount == magicUSDCAmount) {
@@ -354,13 +359,17 @@ contract USDCPendleStrategyTest is TestUtils {
         }
 
         vm.startPrank(strategist);
-        PendleStrategy(myStrategy).buyPTWithAsset(_pendlePT, _assetAmount, _callData);
+        PendleStrategy(myStrategy).buyPTWithAsset(_assetToken, _pendlePT, _assetAmount, _callData);
         vm.stopPrank();
     }
 
-    function _stormOutFromPendlePT(address _strategy, address _pendlePT, address _pendleMarket, uint256 _ptAmount)
-        internal
-    {
+    function _stormOutFromPendlePT(
+        address _assetToken,
+        address _strategy,
+        address _pendlePT,
+        address _pendleMarket,
+        uint256 _ptAmount
+    ) internal {
         bytes memory _callData;
 
         if (_pendlePT == address(PT_ADDR1) && _ptAmount == magicPTAmount) {
@@ -373,13 +382,17 @@ contract USDCPendleStrategyTest is TestUtils {
         }
 
         vm.startPrank(strategist);
-        PendleStrategy(myStrategy).sellPTForAsset(_pendlePT, _ptAmount, _callData);
+        PendleStrategy(myStrategy).sellPTForAsset(_assetToken, _pendlePT, _ptAmount, _callData);
         vm.stopPrank();
     }
 
-    function _redeemAfterPendlePTExpire(address _strategy, address _pendlePT, address _ytToken, uint256 _ptAmount)
-        internal
-    {
+    function _redeemAfterPendlePTExpire(
+        address _assetToken,
+        address _strategy,
+        address _pendlePT,
+        address _ytToken,
+        uint256 _ptAmount
+    ) internal {
         bytes memory _callData;
 
         if (_pendlePT == address(PT_ADDR2) && _ptAmount == magicPTAmount) {
@@ -392,7 +405,7 @@ contract USDCPendleStrategyTest is TestUtils {
         }
 
         vm.startPrank(strategist);
-        PendleStrategy(myStrategy).redeemPTForAsset(_pendlePT, _ptAmount, _callData);
+        PendleStrategy(myStrategy).redeemPTForAsset(_assetToken, _pendlePT, _ptAmount, _callData);
         vm.stopPrank();
     }
 
@@ -484,6 +497,8 @@ contract USDCPendleStrategyTest is TestUtils {
         stkVault.addStrategy(_deployedStrategy, 100);
         vm.stopPrank();
 
+        strategyOwner = PendleStrategy(_deployedStrategy).owner();
+
         return (_deployedStrategy, PendleStrategy(_deployedStrategy).strategist());
     }
 
@@ -493,13 +508,13 @@ contract USDCPendleStrategyTest is TestUtils {
         address _underlyingOracle,
         uint256 _weight
     ) internal {
-        vm.startPrank(strategist);
+        vm.startPrank(strategyOwner);
         PendleStrategy(myStrategy).addPT(_pendleMarket, _underlyingYieldToken, _underlyingOracle, _weight);
         vm.stopPrank();
     }
 
     function _removePTMarket(address _pendlePT, bytes memory _swapData) internal {
-        vm.startPrank(strategist);
+        vm.startPrank(strategyOwner);
         PendleStrategy(myStrategy).removePT(_pendlePT, _swapData);
         vm.stopPrank();
     }

@@ -67,6 +67,16 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     }
 
     /**
+     * @dev allow only called by strategist or owner.
+     */
+    modifier onlyStrategistOrOwner() {
+        if (msg.sender != _strategist && msg.sender != owner()) {
+            revert Constants.ONLY_FOR_STRATEGIST_OR_OWNER();
+        }
+        _;
+    }
+
+    /**
      * @dev allow only called by strategist.
      */
     modifier onlyStrategistOrVault() {
