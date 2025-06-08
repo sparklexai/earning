@@ -167,7 +167,43 @@ contract TokenSwapper is Ownable {
         if (_receiverDecoded != msg.sender) {
             revert Constants.WRONG_SWAP_RECEIVER();
         }
+        return _callPendleRouter(_pendleRouter, _inputToken, _outputToken, _inAmount, _minOut, _swapCallData);
+    }
 
+    /**
+     * @dev typically used with https://api-v2.pendle.finance/core/docs#/SDK/SdkController_rollOverPt
+     */
+    function chainSwapWithPendleRouter(
+        address _pendleRouter,
+        address _inputToken,
+        address _outputToken,
+        uint256 _inAmount,
+        uint256 _minOut,
+        bytes calldata _swapCallData
+    ) external returns (uint256) {
+        (,,, bytes memory _reflectCall) = abi.decode(_swapCallData[4:], (address, bytes, bytes, bytes));
+        address _receiverDecoded = this._getReceiverFromPendleCalldata(_reflectCall);
+        if (_receiverDecoded != msg.sender) {
+            revert Constants.WRONG_SWAP_RECEIVER();
+        }
+        return _callPendleRouter(
+            _pendleRouter,
+            _inputToken,
+            _outputToken,
+            _inAmount,
+            (_minOut * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS),
+            _swapCallData
+        );
+    }
+
+    function _callPendleRouter(
+        address _pendleRouter,
+        address _inputToken,
+        address _outputToken,
+        uint256 _inAmount,
+        uint256 _minOut,
+        bytes calldata _swapCallData
+    ) internal returns (uint256) {
         address _router = _pendleRouter == Constants.ZRO_ADDR ? pendleRouteV4 : _pendleRouter;
         ERC20(_inputToken).transferFrom(msg.sender, address(this), _inAmount);
         _approveTokenToDex(_inputToken, _router);
@@ -198,7 +234,7 @@ contract TokenSwapper is Ownable {
         );
     }
 
-    function _getReceiverFromPendleCalldata(bytes calldata _data) internal pure returns (address) {
+    function _getReceiverFromPendleCalldata(bytes calldata _data) public pure returns (address) {
         return abi.decode(_data[4:36], (address));
     }
 }
