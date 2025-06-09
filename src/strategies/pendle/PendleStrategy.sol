@@ -19,7 +19,7 @@ struct PTInfo {
     address syToken; // SY token address
     address underlyingYield; // underlying yieldToken of this market
     address underlyingOracle; // external oracle for underlying yieldToken of this market
-    uint256 targetWeight;
+    uint32 syOracleTwapSeconds; // use 900 or 1800 for most markets
 }
 
 contract PendleStrategy is BaseSparkleXStrategy {
@@ -50,7 +50,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     // Events
     ///////////////////////////////
     event PTAdded(
-        address indexed market, address indexed underlyingYieldToken, address indexed _caller, uint256 weight
+        address indexed market, address indexed underlyingYieldToken, address indexed _caller, uint32 twapSeconds
     );
     event PTRemoved(address indexed ptToken, address indexed _caller);
     event PTTokensRollover(
@@ -130,12 +130,14 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @param marketAddress Pendle market address
      * @param underlyingYieldToken underlying yieldToken address of the pendle market
      * @param underlyingOracleAddress external oracle address for underlying yieldToken
-     * @param weight allocation weight in basis points for the pendle market to be added
+     * @param twapSeconds by default 900 or 1800 seconds for most market
      */
-    function addPT(address marketAddress, address underlyingYieldToken, address underlyingOracleAddress, uint256 weight)
-        external
-        onlyOwner
-    {
+    function addPT(
+        address marketAddress,
+        address underlyingYieldToken,
+        address underlyingOracleAddress,
+        uint32 twapSeconds
+    ) external onlyOwner {
         if (
             marketAddress == Constants.ZRO_ADDR || underlyingYieldToken == Constants.ZRO_ADDR
                 || underlyingOracleAddress == Constants.ZRO_ADDR
@@ -161,12 +163,12 @@ contract PendleStrategy is BaseSparkleXStrategy {
             syToken: address(_syToken),
             underlyingYield: underlyingYieldToken,
             underlyingOracle: underlyingOracleAddress,
-            targetWeight: weight
+            syOracleTwapSeconds: twapSeconds
         });
         _assetOracles[underlyingYieldToken] = underlyingOracleAddress;
         emit AssetOracleAdded(underlyingYieldToken, underlyingOracleAddress);
         activePTs.add(address(_ptToken));
-        emit PTAdded(marketAddress, underlyingYieldToken, msg.sender, weight);
+        emit PTAdded(marketAddress, underlyingYieldToken, msg.sender, twapSeconds);
     }
 
     /**
@@ -405,7 +407,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         // 1:1 value at maturity
         uint256 _ptPriceInSY = IPMarketV3(ptInfo.market).isExpired()
             ? Constants.ONE_ETHER
-            : TokenSwapper(_swapper).getPTPriceInSYFromPendle(ptInfo.market, 0);
+            : TokenSwapper(_swapper).getPTPriceInSYFromPendle(ptInfo.market, ptInfo.syOracleTwapSeconds);
         uint256 _pt2UnderlyingRateScaled = _ptPriceInSY * _syToUnderlyingRate(ptInfo.syToken) * Constants.ONE_ETHER
             / (Constants.ONE_ETHER * Constants.ONE_ETHER);
 

@@ -195,4 +195,19 @@ contract DummyDEXRouter is Test {
         uint256 _netTokenOut = dummySwapExactIn(msg.sender, receiver, _pt, output.tokenOut, exactPtIn);
         return (_netTokenOut, 0, _netTokenOut);
     }
+
+    // used to swap from PT to another PT:
+    // caller just pass abi.encode(receiver, ptFromAddr, ptToAddr, ptFromAmount) as selfCall2
+    function callAndReflect(
+        address payable reflector,
+        bytes calldata selfCall1,
+        bytes calldata selfCall2,
+        bytes calldata reflectCall
+    ) external payable returns (bytes memory selfRes1, bytes memory selfRes2, bytes memory reflectRes) {
+        bytes memory _empty;
+        (address _receiver, address _ptFrom, address _ptTo, uint256 _ptFromAmount) =
+            abi.decode(selfCall2, (address, address, address, uint256));
+        dummySwapExactIn(msg.sender, _receiver, _ptFrom, _ptTo, _ptFromAmount);
+        return (_empty, _empty, _empty);
+    }
 }

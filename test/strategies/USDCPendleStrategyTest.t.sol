@@ -111,6 +111,37 @@ contract USDCPendleStrategyTest is TestUtils {
         assertEq(_out, ERC20(address(PT_ADDR1)).balanceOf(usdcWhale) - _outBalBefore);
     }
 
+    function test_PT_price_BeforeExpire() public {
+        (myStrategy, strategist) = _createPendleStrategy(false);
+
+        uint32 _twap = 1800;
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _twap);
+
+        uint256 _ptPrice = PendleStrategy(myStrategy).getPTPriceInAsset(usdc, address(PT_ADDR1));
+        uint256 _ptToSyPrice = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), _twap);
+        (int256 _usdcUSDPrice,,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
+        (int256 _yieldUSDPrice,,) = swapper.getPriceFromChainLink(YIELD_TOKEN_FEED1);
+        assertEq(_ptPrice, (uint256(_yieldUSDPrice) * _ptToSyPrice / uint256(_usdcUSDPrice)));
+    }
+
+    function test_PT_price_AfterExpire() public {
+        (myStrategy, strategist) = _createPendleStrategy(false);
+
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+
+        // forward to market expire
+        vm.warp(MARKET_ADDR1.expiry() + 123);
+        assertTrue(MARKET_ADDR1.isExpired());
+
+        uint256 _ptPrice = PendleStrategy(myStrategy).getPTPriceInAsset(UNDERLYING_YIELD_ADDR1, address(PT_ADDR1));
+        assertEq(_ptPrice, Constants.ONE_ETHER);
+
+        _ptPrice = PendleStrategy(myStrategy).getPTPriceInAsset(usdc, address(PT_ADDR1));
+        (int256 _usdcUSDPrice,,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
+        (int256 _yieldUSDPrice,,) = swapper.getPriceFromChainLink(YIELD_TOKEN_FEED1);
+        assertEq(_ptPrice, (uint256(_yieldUSDPrice) * Constants.ONE_ETHER / uint256(_usdcUSDPrice)));
+    }
+
     ///////////////////////////////
     // Following Tests might be changed
     // if market on mainnet change
@@ -249,6 +280,45 @@ contract USDCPendleStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
     }
 
+    function test_Pendle_RollOver_AfterExpire(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+        _addPTMarket(address(MARKET_ADDR2), UNDERLYING_YIELD_ADDR2, YIELD_TOKEN_FEED2, 100);
+
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+
+        // forward to market expire
+        vm.warp(MARKET_ADDR1.expiry() + 123);
+        assertTrue(MARKET_ADDR1.isExpired());
+        assertFalse(MARKET_ADDR2.isExpired());
+
+        // roll over from PT1 to PT2 after PT1 expire
+        uint256 _ptFromAmount = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
+        bytes memory _callData =
+            _generateSwapCalldataForRollover(myStrategy, address(PT_ADDR1), address(PT_ADDR2), _ptFromAmount);
+        _prepareSwapForMockRouter(mockRouter, address(PT_ADDR1), address(PT_ADDR2), PT2_Whale, 150e16);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).rolloverPT(address(PT_ADDR1), address(PT_ADDR2), _ptFromAmount, _callData);
+        vm.stopPrank();
+
+        bytes memory _empty;
+        _removePTMarket(address(PT_ADDR1), _empty);
+        (,,,,, uint128 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(0, _twapSeconds);
+
+        assertEq(IStrategy(myStrategy).totalAssets(), PendleStrategy(myStrategy).getPTAmountInAsset(address(PT_ADDR2)));
+        _checkBasicInvariants(address(stkVault));
+    }
+
     function test_Remove_PTMarket_BeforeExpire(uint256 _testVal) public {
         (myStrategy, strategist) = _createPendleStrategy(true);
         _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
@@ -259,17 +329,17 @@ contract USDCPendleStrategyTest is TestUtils {
             mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
         );
 
-        uint256 _ptWeight = 100;
-        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _ptWeight);
-        (,,,,, uint256 _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
-        assertEq(_ptWeight, _addedWeight);
+        uint32 _twap = 900;
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _twap);
+        (,,,,, uint32 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(_twap, _twapSeconds);
 
         address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
         assertEq(1, _activePTMarkets.length);
 
         // ensure no same PT added
         vm.expectRevert(Constants.PT_ALREADY_EXISTS.selector);
-        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _twap);
 
         _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
         _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
@@ -295,8 +365,8 @@ contract USDCPendleStrategyTest is TestUtils {
         bytes memory _callData = _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _pt1Balance);
         _removePTMarket(address(PT_ADDR1), _callData);
         _checkBasicInvariants(address(stkVault));
-        (,,,,, _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
-        assertEq(0, _addedWeight);
+        (,,,,, _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(0, _twapSeconds);
 
         _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
         assertEq(0, _activePTMarkets.length);
@@ -323,10 +393,10 @@ contract USDCPendleStrategyTest is TestUtils {
             mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
         );
 
-        uint256 _ptWeight = 100;
-        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _ptWeight);
-        (,,,,, uint256 _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
-        assertEq(_ptWeight, _addedWeight);
+        uint32 _twap = 900;
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _twap);
+        (,,,,, uint32 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(_twap, _twapSeconds);
 
         _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
         _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
@@ -344,8 +414,8 @@ contract USDCPendleStrategyTest is TestUtils {
         bytes memory _callData = _generateSwapCalldataForRedeem(myStrategy, YT_ADDR1, 0, _pt1Balance);
         _removePTMarket(address(PT_ADDR1), _callData);
         _checkBasicInvariants(address(stkVault));
-        (,,,,, _addedWeight) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
-        assertEq(0, _addedWeight);
+        (,,,,, _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        assertEq(0, _twapSeconds);
 
         _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
         assertEq(0, _activePTMarkets.length);
@@ -474,6 +544,19 @@ contract USDCPendleStrategyTest is TestUtils {
         return abi.encodeWithSelector(DummyDEXRouter.redeemPyToToken.selector, receiver, ytToken, inAmount, _output);
     }
 
+    function _generateSwapCalldataForRollover(address receiver, address ptFrom, address ptTo, uint256 inAmount)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes memory _sellfCall1;
+        bytes memory _sellfCall2 = abi.encode(receiver, ptFrom, ptTo, inAmount);
+        bytes memory _reflectCall = _generateSwapCalldataForRedeem(receiver, Constants.ZRO_ADDR, 0, inAmount);
+        return abi.encodeWithSelector(
+            DummyDEXRouter.callAndReflect.selector, Constants.ZRO_ADDR, _sellfCall1, _sellfCall2, _reflectCall
+        );
+    }
+
     function _getDummyTokenInput(address _inToken, uint256 _inAmount)
         internal
         view
@@ -532,10 +615,10 @@ contract USDCPendleStrategyTest is TestUtils {
         address _pendleMarket,
         address _underlyingYieldToken,
         address _underlyingOracle,
-        uint256 _weight
+        uint32 _twapSeconds
     ) internal {
         vm.startPrank(strategyOwner);
-        PendleStrategy(myStrategy).addPT(_pendleMarket, _underlyingYieldToken, _underlyingOracle, _weight);
+        PendleStrategy(myStrategy).addPT(_pendleMarket, _underlyingYieldToken, _underlyingOracle, _twapSeconds);
         vm.stopPrank();
     }
 

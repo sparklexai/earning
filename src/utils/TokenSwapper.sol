@@ -230,7 +230,7 @@ contract TokenSwapper is Ownable {
         returns (uint256)
     {
         return pendleOracle.getPtToSyRate(
-            _pendleMarket, twapDurationInSeconds > 0 ? twapDurationInSeconds : PENDLE_ORACLE_TWAP
+            _pendleMarket, twapDurationInSeconds > PENDLE_ORACLE_TWAP ? twapDurationInSeconds : PENDLE_ORACLE_TWAP
         );
     }
 
