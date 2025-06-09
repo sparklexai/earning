@@ -8,6 +8,7 @@ import {AAVEHelper} from "../../src/strategies/aave/AAVEHelper.sol";
 import {EtherFiHelper} from "../../src/strategies/etherfi/EtherFiHelper.sol";
 import {TokenSwapper} from "../../src/utils/TokenSwapper.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {WETH} from "../../interfaces/IWETH.sol";
 import {ILiquidityPool} from "../../interfaces/etherfi/ILiquidityPool.sol";
@@ -62,7 +63,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         stkVault.addStrategy(address(myStrategy), 100);
         vm.stopPrank();
 
-        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST.selector);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, withdrawNFTAdmin));
         vm.startPrank(withdrawNFTAdmin);
         myStrategy.setSwapper(address(swapper));
         vm.stopPrank();
@@ -73,10 +74,15 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.setStrategist(Constants.ZRO_ADDR);
         vm.stopPrank();
 
-        vm.startPrank(strategist);
+        vm.startPrank(_strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setEtherFiHelper(address(etherfiHelper));
         myStrategy.setAAVEHelper(address(aaveHelper));
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(_strategyOwner);
+        myStrategy.setStrategist(Constants.ZRO_ADDR);
         vm.stopPrank();
     }
 

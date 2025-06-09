@@ -47,7 +47,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         emit BaseAAVEStrategyCreated(address(supplyToken), address(borrowToken), address(supplyAToken));
     }
 
-    function setAAVEHelper(address _newHelper) external onlyStrategist {
+    function setAAVEHelper(address _newHelper) external onlyOwner {
         if (_newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }

@@ -185,6 +185,10 @@ contract USDCPendleStrategyTest is TestUtils {
         );
     }
 
+    ///////////////////////////////
+    // Following Tests use mainnet pendle router
+    ///////////////////////////////
+
     function test_Basic_Pendle_InOut(uint256 _testVal) public {
         (myStrategy, strategist) = _createPendleStrategy(false);
         _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
@@ -278,6 +282,31 @@ contract USDCPendleStrategyTest is TestUtils {
 
         assertTrue(_assertApproximateEq(IStrategy(myStrategy).totalAssets(), magicUSDCAmount, 2 * MIN_SHARE));
         _checkBasicInvariants(address(stkVault));
+    }
+
+    ///////////////////////////////
+    // Following Tests use mock dummy router
+    ///////////////////////////////
+
+    function test_Basic_Pendle_Allocate(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        vm.expectRevert(Constants.INVALID_MARKET_TO_ADD.selector);
+        _addPTMarket(Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, 100);
+
+        uint256 _maxAllocation = stkVault.getAllocationAvailableForStrategy(myStrategy);
+        uint256 _assetBalanceBeforeInStrategy = ERC20(usdc).balanceOf(myStrategy);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).allocate(type(uint256).max);
+        vm.stopPrank();
+        assertEq(_maxAllocation, ERC20(usdc).balanceOf(myStrategy) - _assetBalanceBeforeInStrategy);
     }
 
     function test_Pendle_RollOver_AfterExpire(uint256 _testVal) public {
@@ -596,7 +625,7 @@ contract USDCPendleStrategyTest is TestUtils {
             PENDLE_STRATEGY_NAME, type(PendleStrategy).creationCode, _constructorArgs
         );
 
-        vm.startPrank(PendleStrategy(_deployedStrategy).strategist());
+        vm.startPrank(PendleStrategy(_deployedStrategy).owner());
         PendleStrategy(_deployedStrategy).setSwapper(address(swapper));
         vm.stopPrank();
 

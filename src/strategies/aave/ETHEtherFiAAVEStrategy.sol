@@ -51,7 +51,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         _approveToken(address(_borrowToken), address(aavePool));
     }
 
-    function setEtherFiHelper(address _newHelper) external onlyStrategist {
+    function setEtherFiHelper(address _newHelper) external onlyOwner {
         if (_newHelper == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }

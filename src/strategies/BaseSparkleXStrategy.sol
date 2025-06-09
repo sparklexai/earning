@@ -98,7 +98,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         _strategist = _newStrategist;
     }
 
-    function setSwapper(address _newSwapper) external onlyStrategist {
+    function setSwapper(address _newSwapper) external onlyOwner {
         if (_newSwapper == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
