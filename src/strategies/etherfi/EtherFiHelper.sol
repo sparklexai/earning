@@ -46,7 +46,7 @@ contract EtherFiHelper is IERC721Receiver {
     event WithdrawRequestFromEtherFi(address indexed _requster, uint256 indexed _requestId, uint256 _amount);
     event WithdrawClaimFromEtherFi(address indexed _requster, uint256 indexed _requestId, uint256 _amount);
     event ReceiveFromEtherFi(uint256 _amount);
-    event RequestWithdrawNFTReceived(uint256 indexed _requestId);
+    event RequestWithdrawNFTReceived(uint256 indexed _requestId, address _operator, address _from);
 
     constructor() {
         // ether.fi related approvals
@@ -222,7 +222,7 @@ contract EtherFiHelper is IERC721Receiver {
         returns (bytes4)
     {
         require(msg.sender == address(etherfiWithdrawNFT), "wrong NFT received!");
-        emit RequestWithdrawNFTReceived(tokenId);
+        emit RequestWithdrawNFTReceived(tokenId, operator, from);
         return this.onERC721Received.selector;
     }
 }

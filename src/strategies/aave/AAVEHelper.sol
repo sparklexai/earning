@@ -199,7 +199,7 @@ contract AAVEHelper is Ownable {
         return _supply > 0 ? (_supply * getMaxLTV() / Constants.TOTAL_BPS) : 0;
     }
 
-    function _checkEMode(uint8 _mode) internal view returns (bool) {
+    function _checkEMode(uint8 _mode) internal pure returns (bool) {
         return (_mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE);
     }
 

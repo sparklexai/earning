@@ -131,7 +131,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         return _returned;
     }
 
-    function _capAllocationAmount(uint256 _amount) internal returns (uint256) {
+    function _capAllocationAmount(uint256 _amount) internal view returns (uint256) {
         uint256 _maxAllocation = ISparkleXVault(_vault).getAllocationAvailableForStrategy(address(this));
         return _amount > _maxAllocation ? _maxAllocation : _amount;
     }

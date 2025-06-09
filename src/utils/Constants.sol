@@ -27,7 +27,7 @@ library Constants {
      */
     address constant ZRO_ADDR = address(0);
 
-    function convertDecimalToUnit(uint256 decimal) public view returns (uint256) {
+    function convertDecimalToUnit(uint256 decimal) public pure returns (uint256) {
         if (decimal == 18) {
             return ONE_ETHER;
         } else if (decimal == 9) {

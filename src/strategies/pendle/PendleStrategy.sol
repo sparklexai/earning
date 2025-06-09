@@ -376,7 +376,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         return selector;
     }
 
-    function _checkMarketValidity(address _ptToken, bool _beforeExpire) internal {
+    function _checkMarketValidity(address _ptToken, bool _beforeExpire) internal view {
         PTInfo memory ptInfo = ptInfos[_ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();

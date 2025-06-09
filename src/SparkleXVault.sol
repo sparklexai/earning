@@ -348,7 +348,7 @@ contract SparkleXVault is ERC4626, Ownable {
             revert Constants.ZERO_ASSET_TO_USER();
         }
 
-        (uint256 _residue, bool _notEnough) = _checkAssetResidue(_asset);
+        (, bool _notEnough) = _checkAssetResidue(_asset);
         if (!_notEnough) {
             // direct redemption immediately
             uint256 _before = ERC20(asset()).balanceOf(msg.sender);
@@ -405,7 +405,7 @@ contract SparkleXVault is ERC4626, Ownable {
     }
 
     function batchClaimRedemptionRequestsFor(address[] calldata _users)
-        public
+        external
         onlyRedemptionClaimer
         returns (uint256)
     {
