@@ -6,20 +6,30 @@ import {ICurveRouter} from "../../interfaces/curve/ICurveRouter.sol";
 import {ICurvePool} from "../../interfaces/curve/ICurvePool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Constants} from "./Constants.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IOracleAggregatorV3} from "../../interfaces/chainlink/IOracleAggregatorV3.sol";
+
+interface PendleOracleInterface {
+    function getPtToSyRate(address market, uint32 duration) external view returns (uint256);
+}
 
 contract TokenSwapper is Ownable {
     using Math for uint256;
+    using Address for address;
 
     ///////////////////////////////
     // member storage
     ///////////////////////////////
-    uint256 SWAP_SLIPPAGE_BPS = 9960;
+    uint256 public SWAP_SLIPPAGE_BPS = 9920;
+    uint32 public constant PENDLE_ORACLE_TWAP = 900;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
     ICurveRouter curveRouter = ICurveRouter(0x16C6521Dff6baB339122a0FE25a9116693265353);
+    address pendleRouteV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
+    PendleOracleInterface pendleOracle = PendleOracleInterface(0x9a9Fa8338dd5E5B2188006f1Cd2Ef26d921650C2);
 
     ///////////////////////////////
     // events
@@ -132,5 +142,99 @@ contract TokenSwapper is Ownable {
         address[5] memory _dummy_pools =
             [Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
         return curveRouter.get_dx(_route, _params, _minOut, _pools, _dummy_pools, _dummy_pools);
+    }
+
+    ///////////////////////////////
+    // Pendle swap related
+    // check https://docs.pendle.finance/Developers/Contracts/PendleRouter#important-structs-in-pendlerouter
+    // MUST have off-chain to supply calldata bytes via https://api-v2.pendle.finance/core/docs#/SDK/SdkController_swap
+    // Ensure the receiver of the swap is the calling strategy
+    ///////////////////////////////
+
+    /**
+     * @dev ensure the receiver of this swap is the same as msg.sender(strategy)
+     * @dev and correctly encoded in given _swapCallData as the first argument
+     */
+    function swapWithPendleRouter(
+        address _pendleRouter,
+        address _inputToken,
+        address _outputToken,
+        uint256 _inAmount,
+        uint256 _minOut,
+        bytes calldata _swapCallData
+    ) external returns (uint256) {
+        address _receiverDecoded = _getReceiverFromPendleCalldata(_swapCallData);
+        if (_receiverDecoded != msg.sender) {
+            revert Constants.WRONG_SWAP_RECEIVER();
+        }
+        return _callPendleRouter(_pendleRouter, _inputToken, _outputToken, _inAmount, _minOut, _swapCallData);
+    }
+
+    /**
+     * @dev typically used with https://api-v2.pendle.finance/core/docs#/SDK/SdkController_rollOverPt
+     */
+    function chainSwapWithPendleRouter(
+        address _pendleRouter,
+        address _inputToken,
+        address _outputToken,
+        uint256 _inAmount,
+        uint256 _minOut,
+        bytes calldata _swapCallData
+    ) external returns (uint256) {
+        (,,, bytes memory _reflectCall) = abi.decode(_swapCallData[4:], (address, bytes, bytes, bytes));
+        address _receiverDecoded = this._getReceiverFromPendleCalldata(_reflectCall);
+        if (_receiverDecoded != msg.sender) {
+            revert Constants.WRONG_SWAP_RECEIVER();
+        }
+        return _callPendleRouter(
+            _pendleRouter,
+            _inputToken,
+            _outputToken,
+            _inAmount,
+            (_minOut * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS),
+            _swapCallData
+        );
+    }
+
+    function _callPendleRouter(
+        address _pendleRouter,
+        address _inputToken,
+        address _outputToken,
+        uint256 _inAmount,
+        uint256 _minOut,
+        bytes calldata _swapCallData
+    ) internal returns (uint256) {
+        address _router = _pendleRouter == Constants.ZRO_ADDR ? pendleRouteV4 : _pendleRouter;
+        ERC20(_inputToken).transferFrom(msg.sender, address(this), _inAmount);
+        _approveTokenToDex(_inputToken, _router);
+        uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(msg.sender);
+        address(_router).functionCall(_swapCallData);
+        uint256 _actualOut = ERC20(_outputToken).balanceOf(msg.sender) - _outputBalBefore;
+        if (applySlippageMargin(_actualOut) < _minOut) {
+            revert Constants.SWAP_OUT_TOO_SMALL();
+        }
+        return _actualOut;
+    }
+
+    function getPriceFromChainLink(address _aggregator) public view returns (int256, uint256, uint8) {
+        (uint80 roundId, int256 answer,, uint256 updatedAt,) = IOracleAggregatorV3(_aggregator).latestRoundData();
+        if (roundId == 0 || answer <= 0) {
+            revert Constants.WRONG_PRICE_FROM_ORACLE();
+        }
+        return (answer, updatedAt, IOracleAggregatorV3(_aggregator).decimals());
+    }
+
+    function getPTPriceInSYFromPendle(address _pendleMarket, uint32 twapDurationInSeconds)
+        public
+        view
+        returns (uint256)
+    {
+        return pendleOracle.getPtToSyRate(
+            _pendleMarket, twapDurationInSeconds > PENDLE_ORACLE_TWAP ? twapDurationInSeconds : PENDLE_ORACLE_TWAP
+        );
+    }
+
+    function _getReceiverFromPendleCalldata(bytes calldata _data) public pure returns (address) {
+        return abi.decode(_data[4:36], (address));
     }
 }

@@ -39,14 +39,15 @@ library Constants {
         }
     }
 
-    error INVALID_BPS_TO_SET();
-
-    // errors in vault
+    // errors in vault & common to strategies
     error STRATEGY_COLLECTION_IN_PROCESS();
+    error SWAP_OUT_TOO_SMALL();
+    error INVALID_BPS_TO_SET();
     error WRONG_STRATEGY_TO_ADD();
     error WRONG_STRATEGY_TO_REMOVE();
     error ZERO_SHARE_TO_MINT();
     error TOO_SMALL_FIRST_SHARE();
+    error WRONG_PRICE_FROM_ORACLE();
     error INVALID_ADDRESS_TO_SET();
     error ONLY_FOR_CLAIMER();
     error ONLY_FOR_CLAIMER_OR_OWNER();
@@ -55,6 +56,8 @@ library Constants {
     error ZERO_ASSET_TO_USER();
     error USER_REDEMPTION_NOT_CLAIMED();
     error LESS_REDEMPTION_TO_USER();
+    error WRONG_SWAP_RECEIVER();
+    error ONLY_FOR_STRATEGIST_OR_OWNER();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();
@@ -69,4 +72,14 @@ library Constants {
 
     // errors in EtherFi related strategy
     error TOO_MANY_WITHDRAW_FOR_ETHERFI();
+
+    // errors in Pendle related strategy
+    error INVALID_MARKET_TO_ADD();
+    error PT_NOT_FOUND();
+    error PT_ALREADY_EXISTS();
+    error PT_NOT_MATURED();
+    error PT_ALREADY_MATURED();
+    error INVALID_SWAP_CALLDATA();
+    error MAX_PT_EXCEEDED();
+    error PT_STILL_IN_USE();
 }

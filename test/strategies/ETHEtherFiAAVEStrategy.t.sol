@@ -176,6 +176,10 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.collectAll();
         vm.stopPrank();
 
+        vm.startPrank(swapper.owner());
+        swapper.setSlippage(9960);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.collectAll();
         vm.stopPrank();
@@ -245,6 +249,10 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256 _redemptioRequested = TestUtils._makeRedemptionRequest(_user, _toRedeemShare, address(stkVault));
         assertEq(stkVault.userRedemptionRequestShares(_user), (_toRedeemShare > _share ? _share : _toRedeemShare));
         assertEq(stkVault.userRedemptionRequestAssets(_user), _redemptioRequested);
+
+        vm.startPrank(swapper.owner());
+        swapper.setSlippage(9960);
+        vm.stopPrank();
 
         uint256 _portionVal = _testVal / 10;
         vm.startPrank(strategist);
