@@ -211,6 +211,9 @@ contract PendleStrategy is BaseSparkleXStrategy {
         _checkMarketValidity(ptTokenTo, true);
 
         ptFromAmount = _capAmountByBalance(ERC20(ptTokenFrom), ptFromAmount, false);
+        if (ptFromAmount == 0) {
+            revert Constants.ZERO_TO_SWAP_IN_PENDLE();
+        }
         uint256 _minOut = _getMinExpectedPTForRollover(ptTokenFrom, ptTokenTo, ptFromAmount);
         bytes4 _funcSelector = _getFunctionSelector(_swapData);
         if (_funcSelector != TARGET_SELECTOR_REFLECT) {
@@ -242,6 +245,9 @@ contract PendleStrategy is BaseSparkleXStrategy {
         }
 
         assetAmount = _capAmountByBalance(ERC20(_assetToken), assetAmount, false);
+        if (assetAmount == 0) {
+            revert Constants.ZERO_TO_SWAP_IN_PENDLE();
+        }
         uint256 _minOut = _getMinExpectedPT(_assetToken, ptToken, assetAmount);
         bytes4 _funcSelector = _getFunctionSelector(_swapData);
         if (_funcSelector != TARGET_SELECTOR_BUY) {
@@ -296,6 +302,9 @@ contract PendleStrategy is BaseSparkleXStrategy {
         bytes4 _targetSelector
     ) internal returns (uint256) {
         ptAmount = _capAmountByBalance(ERC20(ptToken), ptAmount, false);
+        if (ptAmount == 0) {
+            revert Constants.ZERO_TO_SWAP_IN_PENDLE();
+        }
         uint256 _minOut = _getMinExpectedAsset(_assetToken, ptToken, ptAmount);
         bytes4 _funcSelector = _getFunctionSelector(_swapData);
         if (_funcSelector != _targetSelector) {

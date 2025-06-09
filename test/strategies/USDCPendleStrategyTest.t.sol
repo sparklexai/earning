@@ -322,6 +322,9 @@ contract USDCPendleStrategyTest is TestUtils {
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
         _addPTMarket(address(MARKET_ADDR2), UNDERLYING_YIELD_ADDR2, YIELD_TOKEN_FEED2, 100);
 
+        vm.expectRevert(Constants.ZERO_TO_SWAP_IN_PENDLE.selector);
+        _zapInWithPendlePT(UNDERLYING_YIELD_ADDR1, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+
         _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
         _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
 
@@ -335,6 +338,11 @@ contract USDCPendleStrategyTest is TestUtils {
         bytes memory _callData =
             _generateSwapCalldataForRollover(myStrategy, address(PT_ADDR1), address(PT_ADDR2), _ptFromAmount);
         _prepareSwapForMockRouter(mockRouter, address(PT_ADDR1), address(PT_ADDR2), PT2_Whale, 150e16);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).rolloverPT(address(PT_ADDR1), address(PT_ADDR2), _ptFromAmount, _callData);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.ZERO_TO_SWAP_IN_PENDLE.selector);
         vm.startPrank(strategist);
         PendleStrategy(myStrategy).rolloverPT(address(PT_ADDR1), address(PT_ADDR2), _ptFromAmount, _callData);
         vm.stopPrank();

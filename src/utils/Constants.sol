@@ -82,4 +82,5 @@ library Constants {
     error INVALID_SWAP_CALLDATA();
     error MAX_PT_EXCEEDED();
     error PT_STILL_IN_USE();
+    error ZERO_TO_SWAP_IN_PENDLE();
 }
