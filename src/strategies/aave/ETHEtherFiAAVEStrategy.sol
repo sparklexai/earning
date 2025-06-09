@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaseAAVEStrategy} from "./BaseAAVEStrategy.sol";
 import {WETH} from "../../../interfaces/IWETH.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -258,7 +259,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         uint256 amount = _capAllocationAmount(_assetAmount);
         if (amount > 0) {
             emit AllocateInvestment(msg.sender, amount);
-            _asset.transferFrom(_vault, address(this), amount);
+            SafeERC20.safeTransferFrom(_asset, _vault, address(this), amount);
             amount = _depositToEtherFi(amount);
         }
         return amount;

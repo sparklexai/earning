@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WETH} from "../../../interfaces/IWETH.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IeETH} from "../../../interfaces/etherfi/IeETH.sol";
@@ -64,7 +65,7 @@ contract EtherFiHelper is IERC721Receiver {
     function depositToEtherFi(uint256 _toDeposit) external returns (uint256) {
         require(_toDeposit > 0, "0 to deposit in etherfi!");
 
-        ERC20(wETH).transferFrom(msg.sender, address(this), _toDeposit);
+        SafeERC20.safeTransferFrom(ERC20(wETH), msg.sender, address(this), _toDeposit);
         require(ERC20(wETH).balanceOf(address(this)) >= _toDeposit, "!not enough deposit to EtherFi");
 
         WETH(wETH).withdraw(_toDeposit);
@@ -84,7 +85,7 @@ contract EtherFiHelper is IERC721Receiver {
 
         uint256 _mintedSupply = _WeETHAfter - _WeETHBefore;
         emit DepositToEtherFi(msg.sender, _toDeposit, _mintedeETH, _mintedSupply);
-        ERC20(address(weETH)).transfer(msg.sender, _mintedSupply);
+        SafeERC20.safeTransfer(ERC20(address(weETH)), msg.sender, _mintedSupply);
         return _mintedSupply;
     }
 
@@ -96,7 +97,7 @@ contract EtherFiHelper is IERC721Receiver {
             revert Constants.TOO_MANY_WITHDRAW_FOR_ETHERFI();
         }
 
-        ERC20(address(weETH)).transferFrom(msg.sender, address(this), _toWithdrawWeETH);
+        SafeERC20.safeTransferFrom(ERC20(address(weETH)), msg.sender, address(this), _toWithdrawWeETH);
         uint256 _toWithdraw = weETH.unwrap(_toWithdrawWeETH);
 
         uint256 _reqID = etherfiLP.requestWithdraw(address(this), _toWithdraw);
@@ -123,7 +124,7 @@ contract EtherFiHelper is IERC721Receiver {
 
         emit WithdrawClaimFromEtherFi(_requester, _reqID, _claimed);
 
-        ERC20(wETH).transfer(_requester, _claimed);
+        SafeERC20.safeTransfer(ERC20(wETH), _requester, _claimed);
         return _claimed;
     }
 

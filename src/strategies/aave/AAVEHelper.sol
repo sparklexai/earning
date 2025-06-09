@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPool} from "../../../interfaces/aave/IPool.sol";
 import {IAaveOracle} from "../../../interfaces/aave/IAaveOracle.sol";
@@ -87,7 +88,7 @@ contract AAVEHelper is Ownable {
     ///////////////////////////////
 
     function supplyToAAVE(uint256 _supplyAmount) external returns (uint256) {
-        _supplyToken.transferFrom(msg.sender, address(this), _supplyAmount);
+        SafeERC20.safeTransferFrom(_supplyToken, msg.sender, address(this), _supplyAmount);
 
         uint256 _aTokenBefore = _supplyAToken.balanceOf(msg.sender);
         aavePool.supply(address(_supplyToken), _supplyAmount, msg.sender, 0);
@@ -107,13 +108,13 @@ contract AAVEHelper is Ownable {
 
         (,,,,, uint256 newHealthFactor) = aavePool.getUserAccountData(msg.sender);
         emit BorrowFromAAVE(msg.sender, _borrowed, newHealthFactor);
-        _borrowToken.transfer(msg.sender, _borrowed);
+        SafeERC20.safeTransfer(_borrowToken, msg.sender, _borrowed);
         return _borrowed;
     }
 
     function repayDebtToAAVE(uint256 _debtToRepay) external returns (uint256) {
         uint256 _borrowTokenOnBehalf = _borrowToken.balanceOf(msg.sender);
-        _borrowToken.transferFrom(msg.sender, address(this), _borrowTokenOnBehalf);
+        SafeERC20.safeTransferFrom(_borrowToken, msg.sender, address(this), _borrowTokenOnBehalf);
 
         uint256 _borrowBefore = _borrowToken.balanceOf(address(this));
         uint256 _repaid = aavePool.repay(address(_borrowToken), _debtToRepay, 2, msg.sender);
@@ -121,7 +122,7 @@ contract AAVEHelper is Ownable {
 
         uint256 _diff = _borrowBefore - _borrowAfter;
         if (_borrowTokenOnBehalf > _diff) {
-            _borrowToken.transfer(msg.sender, _borrowTokenOnBehalf - _diff);
+            SafeERC20.safeTransfer(_borrowToken, msg.sender, _borrowTokenOnBehalf - _diff);
         }
 
         (,,,,, uint256 newHealthFactor) = aavePool.getUserAccountData(msg.sender);

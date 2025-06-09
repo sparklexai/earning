@@ -5,6 +5,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ICurveRouter} from "../../interfaces/curve/ICurveRouter.sol";
 import {ICurvePool} from "../../interfaces/curve/ICurvePool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./Constants.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -97,7 +98,7 @@ contract TokenSwapper is Ownable {
             _dy = curveRouter.get_dy(_route, _params, _inAmount, _pools) * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS;
         }
 
-        ERC20(inToken).transferFrom(msg.sender, address(this), _inAmount);
+        SafeERC20.safeTransferFrom(ERC20(inToken), msg.sender, address(this), _inAmount);
         _approveTokenToDex(inToken, address(curveRouter));
         uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _dy, _pools, msg.sender);
         emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
@@ -205,7 +206,7 @@ contract TokenSwapper is Ownable {
         bytes calldata _swapCallData
     ) internal returns (uint256) {
         address _router = _pendleRouter == Constants.ZRO_ADDR ? pendleRouteV4 : _pendleRouter;
-        ERC20(_inputToken).transferFrom(msg.sender, address(this), _inAmount);
+        SafeERC20.safeTransferFrom(ERC20(_inputToken), msg.sender, address(this), _inAmount);
         _approveTokenToDex(_inputToken, _router);
         uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(msg.sender);
         address(_router).functionCall(_swapCallData);

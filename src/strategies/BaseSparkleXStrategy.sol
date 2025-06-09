@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IStrategy} from "../../interfaces/IStrategy.sol";
 import {Constants} from "../utils/Constants.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -125,7 +126,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     function _returnAssetToVault(uint256 amount) internal returns (uint256) {
         uint256 _returned = _capAmountByBalance(_asset, amount, false);
         if (_returned > 0) {
-            _asset.transfer(_vault, _returned);
+            SafeERC20.safeTransfer(_asset, _vault, _returned);
         }
         return _returned;
     }

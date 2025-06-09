@@ -98,7 +98,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (amount == 0) {
             return;
         }
-        _asset.safeTransferFrom(_vault, address(this), amount);
+        SafeERC20.safeTransferFrom(_asset, _vault, address(this), amount);
         emit AllocateInvestment(msg.sender, amount);
     }
 
