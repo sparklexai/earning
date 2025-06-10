@@ -441,6 +441,44 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
     }
 
+    function test_FullDeloop_WithoutSwap(uint256 _testVal) public {
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        _testVal = _assetVal;
+
+        _makeLoopingInvestment(11);
+        (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(true);
+        uint256[] memory _reqIDs = new uint256[](1);
+
+        for (uint256 i = 0; i < 30; i++) {
+            (uint256 _toRedeem,) = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
+
+            vm.startPrank(strategist);
+            myStrategy.redeem(IWeETH(weETH).getWeETHByeETH(_toRedeem));
+            vm.stopPrank();
+
+            uint256[][] memory _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
+            uint256 _reqID = _activeWithdrawReqs[0][0];
+            _reqIDs[0] = _reqID;
+
+            _finalizeWithdrawRequest(_reqID);
+
+            vm.startPrank(strategist);
+            myStrategy.claimAndRepay(_reqIDs, myStrategy.assetsInCollection());
+            vm.stopPrank();
+
+            (, _debtInAsset,) = myStrategy.getNetSupplyAndDebt(true);
+            console.log("i:%d,_debtInAsset:%d", (i + 1), _debtInAsset);
+            if (_debtInAsset == 0) {
+                break;
+            }
+        }
+        assertEq(_debtInAsset, 0);
+        assertEq(myStrategy.assetsInCollection(), 0);
+    }
+
     function test_Max_Redeem(uint256 _testVal) public {
         _fundFirstDepositGenerously(address(stkVault));
 
