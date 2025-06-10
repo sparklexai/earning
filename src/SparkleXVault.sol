@@ -64,8 +64,11 @@ contract SparkleXVault is ERC4626, Ownable {
     event RedemptionClaimerChanged(address indexed _old, address indexed _new);
     event FeeRecipientChanged(address indexed _old, address indexed _new);
     event WithdrawFeeCharged(address indexed _withdrawer, address indexed _recipient, uint256 _fee);
-    event ManagementFeeUpdated(uint256 _addedFee, uint256 _newTotalAssets, uint256 _newTimestamp);
+    event ManagementFeeUpdated(uint256 _addedFee, uint256 _newTotalAssets, uint256 _newTimestamp, uint256 _feeBps);
     event ManagementFeeClaimed(address indexed _recipient, uint256 _fee);
+    event EarnRatioChanged(address indexed _caller, uint256 _new);
+    event WithdrawFeeChanged(address indexed _caller, uint256 _new);
+    event ManagementFeeChanged(address indexed _caller, uint256 _new);
 
     constructor(ERC20 _asset, string memory name_, string memory symbol_)
         ERC4626(_asset)
@@ -144,6 +147,7 @@ contract SparkleXVault is ERC4626, Ownable {
             revert Constants.INVALID_BPS_TO_SET();
         }
         EARN_RATIO_BPS = _ratio;
+        emit EarnRatioChanged(msg.sender, _ratio);
     }
 
     function setWithdrawFeeRatio(uint256 _ratio) external onlyOwner {
@@ -151,25 +155,30 @@ contract SparkleXVault is ERC4626, Ownable {
             revert Constants.INVALID_BPS_TO_SET();
         }
         WITHDRAW_FEE_BPS = _ratio;
+        emit WithdrawFeeChanged(msg.sender, _ratio);
     }
 
     function setManagementFeeRatio(uint256 _ratio) external onlyOwner {
         if (_ratio >= Constants.TOTAL_BPS) {
             revert Constants.INVALID_BPS_TO_SET();
         }
-        MANAGEMENT_FEE_BPS = _ratio;
         _accumulateManagementFeeInternal();
+        MANAGEMENT_FEE_BPS = _ratio;
+        emit ManagementFeeChanged(msg.sender, _ratio);
     }
 
     function addStrategy(address _strategyAddr, uint256 _allocation) external onlyOwner {
         if (
             _strategyAddr == Constants.ZRO_ADDR || IStrategy(_strategyAddr).asset() != asset()
                 || IStrategy(_strategyAddr).vault() != address(this) || strategyAllocations[_strategyAddr] > 0
+                || _allocation == 0
         ) {
             revert Constants.WRONG_STRATEGY_TO_ADD();
         }
-        require(activeStrategies < MAX_ACTIVE_STRATEGY, "!too many strategies");
-        require(_allocation > 0, "!invalid startegy allocation");
+
+        if (activeStrategies >= MAX_ACTIVE_STRATEGY) {
+            revert Constants.TOO_MANY_STRATEGIES();
+        }
 
         strategiesAllocationSum = strategiesAllocationSum + _allocation;
 
@@ -219,24 +228,37 @@ contract SparkleXVault is ERC4626, Ownable {
     function _accumulateManagementFeeInternal() internal {
         ManagementFeeRecord storage _feeRecord = mgmtFee;
         uint256 currentTime = block.timestamp;
-        uint256 _recordedTime = _feeRecord.lastUpdateTimestamp > 0 ? _feeRecord.lastUpdateTimestamp : currentTime;
         uint256 currentTotalAssets = totalAssets();
-        uint256 newFee;
-        uint256 _timeElapsed = currentTime - _recordedTime;
+        (uint256 newFee,) = previewManagementFeeAccumulated(currentTotalAssets, currentTime);
 
-        if (_timeElapsed > 0) {
-            uint256 recordedAssets = _feeRecord.lastUpdateTotalAssets;
-            uint256 assetsToCharge =
-                (currentTotalAssets > recordedAssets && recordedAssets > 0) ? recordedAssets : currentTotalAssets;
-            uint256 feesAnnualInTheory = assetsToCharge * MANAGEMENT_FEE_BPS / Constants.TOTAL_BPS;
-            newFee = feesAnnualInTheory > 0 ? (feesAnnualInTheory * _timeElapsed / Constants.ONE_YEAR) : 0;
+        if (newFee > 0) {
             _feeRecord.feesAccumulated += newFee;
         }
 
         _feeRecord.lastUpdateTotalAssets = currentTotalAssets;
         _feeRecord.lastUpdateTimestamp = currentTime;
 
-        emit ManagementFeeUpdated(newFee, currentTotalAssets, currentTime);
+        emit ManagementFeeUpdated(newFee, currentTotalAssets, currentTime, MANAGEMENT_FEE_BPS);
+    }
+
+    function previewManagementFeeAccumulated(uint256 _currentTotalAssets, uint256 _currentTime)
+        public
+        view
+        returns (uint256, uint256)
+    {
+        ManagementFeeRecord memory _feeRecord = mgmtFee;
+
+        uint256 _recordedTime = _feeRecord.lastUpdateTimestamp > 0 ? _feeRecord.lastUpdateTimestamp : _currentTime;
+        uint256 _timeElapsed = _currentTime > _recordedTime ? (_currentTime - _recordedTime) : 0;
+        uint256 newFee;
+
+        if (_timeElapsed > 0) {
+            uint256 recordedAssets = _feeRecord.lastUpdateTotalAssets;
+            uint256 assetsToCharge =
+                (_currentTotalAssets > recordedAssets && recordedAssets > 0) ? recordedAssets : _currentTotalAssets;
+            newFee = (assetsToCharge * MANAGEMENT_FEE_BPS * _timeElapsed) / (Constants.ONE_YEAR * Constants.TOTAL_BPS);
+        }
+        return (newFee, _timeElapsed);
     }
 
     function claimManagementFee() external onlyRedemptionClaimerOrOwner {
@@ -287,15 +309,13 @@ contract SparkleXVault is ERC4626, Ownable {
 
     function totalAssets() public view override returns (uint256) {
         uint256 _residue = ERC20(asset()).balanceOf(address(this));
-        uint256 _allocation;
+        uint256 _total;
         for (uint256 i = 0; i < MAX_ACTIVE_STRATEGY; i++) {
             if (allStrategies[i] != Constants.ZRO_ADDR) {
-                _allocation = _allocation + IStrategy(allStrategies[i]).totalAssets();
-            } else {
-                break;
+                _total = _total + IStrategy(allStrategies[i]).totalAssets();
             }
         }
-        return _residue + _allocation;
+        return _residue + _total;
     }
 
     function depositWithReferral(uint256 assets, address receiver, address referralCode) external returns (uint256) {

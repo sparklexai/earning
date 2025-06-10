@@ -17,6 +17,7 @@ contract TestUtils is Test {
     uint256 constant COMP_TOLERANCE = 10000;
     uint256 constant BIGGER_TOLERANCE = 3 * 1e16;
     uint256 constant MIN_SHARE = 10 ** 6;
+    uint256 constant MAX_STRATEGIES_NUM = 8;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();
@@ -169,6 +170,8 @@ contract TestUtils is Test {
     function _checkBasicInvariants(address _vault) internal {
         _checkConvertToSharesFull(_vault);
         _checkConvertToAssetsFull(_vault);
+        _checkTotalShare(_vault);
+        _checkStrategyAllocations(_vault);
     }
 
     function _checkConvertToSharesFull(address _vault) internal {
@@ -185,6 +188,25 @@ contract TestUtils is Test {
         uint256 _assetConverted = SparkleXVault(_vault).convertToAssets(_supply);
         console.log("_supply:%d,_asset:%d,_assetConverted:%d", _supply, _asset, _assetConverted);
         assertTrue(_assertApproximateEq(_asset, _assetConverted, BIGGER_TOLERANCE));
+    }
+
+    function _checkTotalShare(address _vault) internal {
+        assertTrue(SparkleXVault(_vault).totalSupply() >= MIN_SHARE);
+        assertTrue(ERC20(_vault).balanceOf(_vault) >= MIN_SHARE);
+    }
+
+    function _checkStrategyAllocations(address _vault) internal {
+        uint256 _totalAllocs;
+        uint256 _activeCount;
+        for (uint256 i = 0; i < MAX_STRATEGIES_NUM; i++) {
+            address _strategy = SparkleXVault(_vault).allStrategies(i);
+            if (_strategy != Constants.ZRO_ADDR) {
+                _activeCount++;
+                _totalAllocs += SparkleXVault(_vault).strategyAllocations(_strategy);
+            }
+        }
+        assertEq(_totalAllocs, SparkleXVault(_vault).strategiesAllocationSum());
+        assertEq(_activeCount, SparkleXVault(_vault).activeStrategies());
     }
 
     function _makeVaultDeposit(address _vault, address _user, uint256 _amount, uint256 _low, uint256 _high)

@@ -19,6 +19,7 @@ contract SparkleXVaultTest is TestUtils {
 
     // events to check
     event AssetAdded(address indexed _depositor, address indexed _referralCode, uint256 _amount);
+    event ManagementFeeUpdated(uint256 _addedFee, uint256 _newTotalAssets, uint256 _newTimestamp, uint256 _feeBps);
 
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleX-ETH-Vault", "SPX-ETH-V");
@@ -138,9 +139,7 @@ contract SparkleXVaultTest is TestUtils {
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
         uint256 _share = stkVault.deposit(wETHVal, _user);
         vm.stopPrank();
-
-        uint256 _userShare = stkVault.balanceOf(_user);
-        assertEq(_share, _userShare);
+        assertEq(_share, stkVault.balanceOf(_user));
 
         uint256 _totalAssets = stkVault.totalAssets();
         assertEq(wETHVal + _generousAsset, _totalAssets);
@@ -153,22 +152,35 @@ contract SparkleXVaultTest is TestUtils {
         stkVault.setWithdrawFeeRatio(Constants.TOTAL_BPS);
         vm.stopPrank();
 
+        uint256 _tsEmitted = block.timestamp;
+        (uint256 _feeAccumulated,) = stkVault.previewManagementFeeAccumulated(_totalAssets, _tsEmitted);
+
+        vm.expectEmit();
+        emit ManagementFeeUpdated(_feeAccumulated, _totalAssets, _tsEmitted, 200);
+
         vm.startPrank(stkVOwner);
         stkVault.setManagementFeeRatio(_feeBps);
         vm.stopPrank();
+        (uint256 _fee, uint256 _supply, uint256 _ts) = stkVault.mgmtFee();
         assertEq(_feeBps, stkVault.MANAGEMENT_FEE_BPS());
+        assertEq(_feeAccumulated, _fee);
 
-        uint256 _currentTime = block.timestamp;
         uint256 _timeElapsed = Constants.ONE_YEAR / 12;
-        uint256 _targetTime = _currentTime + _timeElapsed;
+        uint256 _targetTime = block.timestamp + _timeElapsed;
         vm.warp(_targetTime);
 
         (,, uint256 _ts0) = stkVault.mgmtFee();
+
         vm.startPrank(stkVOwner);
         stkVault.accumulateManagementFee();
         vm.stopPrank();
+        (_fee, _supply, _ts) = stkVault.mgmtFee();
 
-        (uint256 _fee, uint256 _supply, uint256 _ts) = stkVault.mgmtFee();
+        vm.expectRevert(Constants.ONLY_FOR_CLAIMER_OR_OWNER.selector);
+        vm.startPrank(_user);
+        stkVault.accumulateManagementFee();
+        vm.stopPrank();
+
         uint256 _expectedFee = (_totalAssets * (_targetTime - _ts0) * stkVault.MANAGEMENT_FEE_BPS())
             / (Constants.TOTAL_BPS * Constants.ONE_YEAR);
         console.log("_fee:%d,_supply:%d,_ts:%d", _fee, _supply, _ts);
@@ -177,8 +189,7 @@ contract SparkleXVaultTest is TestUtils {
         assertTrue(_assertApproximateEq(_fee, _expectedFee, BIGGER_TOLERANCE));
 
         // accumulate fee again
-        _currentTime = block.timestamp;
-        _targetTime = _currentTime + _timeElapsed;
+        _targetTime = block.timestamp + _timeElapsed;
         vm.warp(_targetTime);
 
         vm.startPrank(stkVOwner);
@@ -293,6 +304,14 @@ contract SparkleXVaultTest is TestUtils {
         _testVal = _assetVal;
         vm.startPrank(stkVOwner);
         myStrategy.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy)));
+        vm.stopPrank();
+
+        // not enough asset to make the redeem
+        vm.expectRevert();
+        vm.startPrank(_user);
+        stkVault.redeem(_share, _user, _user);
+        vm.stopPrank();
+
         TestUtils._makeRedemptionRequest(_user, _share, address(stkVault));
         assertEq(_share, stkVault.userRedemptionRequestShares(_user));
         vm.expectRevert(Constants.LESS_REDEMPTION_TO_USER.selector);
@@ -317,6 +336,12 @@ contract SparkleXVaultTest is TestUtils {
         stkVault.removeStrategy(address(myStrategy2));
         vm.stopPrank();
         assertEq(0, stkVault.strategyAllocations(address(myStrategy2)));
+
+        // can't remove the second strategy again
+        vm.expectRevert(Constants.WRONG_STRATEGY_TO_REMOVE.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.removeStrategy(address(myStrategy2));
+        vm.stopPrank();
 
         // remove the first strategy
         vm.startPrank(stkVOwner);
@@ -361,5 +386,84 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         assertEq(_newWithdrawFee, stkVault.WITHDRAW_FEE_BPS());
         assertTrue(timelocker.isOperationDone(_id));
+    }
+
+    function test_TotalAsset_After_RemoveStrategy(uint256 _testVal) public {
+        // create the first strategy
+        uint256 _alloc1 = 100;
+        DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));
+
+        // add the first strategy
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(myStrategy), _alloc1);
+        vm.stopPrank();
+        assertEq(address(myStrategy), stkVault.allStrategies(0));
+
+        _fundFirstDepositGenerously(address(stkVault));
+
+        address _user = TestUtils._getSugarUser();
+        TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+        uint256 _assetAllocated1 = stkVault.getAllocationAvailableForStrategy(address(myStrategy));
+        vm.startPrank(stkVOwner);
+        myStrategy.allocate(_assetAllocated1);
+        vm.stopPrank();
+        assertEq(_assetAllocated1, myStrategy.totalAssets());
+
+        // create the second strategy
+        uint256 _alloc2 = 10;
+        DummyStrategy myStrategy2 = new DummyStrategy(wETH, address(stkVault));
+
+        // add the second strategy
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(myStrategy2), _alloc2);
+        vm.stopPrank();
+        assertEq(address(myStrategy2), stkVault.allStrategies(1));
+
+        address _user2 = TestUtils._getSugarUser();
+        TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal, 2 ether, 100 ether);
+        vm.startPrank(stkVOwner);
+        myStrategy2.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy2)));
+        vm.stopPrank();
+
+        // remove the first strategy
+        vm.startPrank(stkVOwner);
+        stkVault.removeStrategy(address(myStrategy));
+        vm.stopPrank();
+        assertEq(0, myStrategy.totalAssets());
+        assertEq(Constants.ZRO_ADDR, stkVault.allStrategies(0));
+
+        // check totalAssets() match after 1st strategy removed
+        assertEq(stkVault.totalAssets(), myStrategy2.totalAssets() + ERC20(wETH).balanceOf(address(stkVault)));
+        _checkBasicInvariants(address(stkVault));
+    }
+
+    function test_AddStrategy_TooMany() public {
+        // add enough strategies
+        for (uint256 i = 0; i < MAX_STRATEGIES_NUM; i++) {
+            DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));
+            vm.startPrank(stkVOwner);
+            stkVault.addStrategy(address(myStrategy), 100);
+            vm.stopPrank();
+        }
+        assertEq(MAX_STRATEGIES_NUM, stkVault.activeStrategies());
+
+        address _replacedStrategy = stkVault.allStrategies(MAX_STRATEGIES_NUM / 2);
+
+        // fail to add any new strategy due to capacity full
+        DummyStrategy anewStrategy = new DummyStrategy(wETH, address(stkVault));
+        vm.expectRevert(Constants.TOO_MANY_STRATEGIES.selector);
+
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(anewStrategy), 100);
+        vm.stopPrank();
+
+        // make the replacement
+        vm.startPrank(stkVOwner);
+        stkVault.removeStrategy(address(_replacedStrategy));
+        stkVault.addStrategy(address(anewStrategy), 100);
+        vm.stopPrank();
+        assertEq(address(anewStrategy), stkVault.allStrategies(MAX_STRATEGIES_NUM / 2));
+        assertEq(MAX_STRATEGIES_NUM, stkVault.activeStrategies());
+        _checkBasicInvariants(address(stkVault));
     }
 }
