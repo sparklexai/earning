@@ -438,6 +438,8 @@ contract SparkleXVaultTest is TestUtils {
     }
 
     function test_AddStrategy_TooMany() public {
+        _fundFirstDepositGenerously(address(stkVault));
+
         // add enough strategies
         for (uint256 i = 0; i < MAX_STRATEGIES_NUM; i++) {
             DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));

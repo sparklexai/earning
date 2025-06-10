@@ -93,6 +93,9 @@ contract PendleStrategy is BaseSparkleXStrategy {
         return 0;
     }
 
+    /**
+     * @dev simply transfer _asset with given amount from vault to this strategy
+     */
     function allocate(uint256 amount) public override onlyStrategistOrVault {
         amount = _capAllocationAmount(amount);
         if (amount == 0) {
@@ -102,7 +105,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         emit AllocateInvestment(msg.sender, amount);
     }
 
-    function collect(uint256 amount) public override onlyStrategistOrVault {
+    function collect(uint256 amount) external override onlyStrategistOrVault {
         if (amount == 0) {
             return;
         }
@@ -175,6 +178,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @notice Remove a Pendle market specified by given PT token from this strategy
      * @dev all PT of given market held in this strategy will be swapped back to asset of this strategy
      * @param ptToken PT token address of the pendle market to be removed
+     * @param _swapData calldata from pendle SDK for possible redeem or swap
      */
     function removePT(address ptToken, bytes calldata _swapData) external onlyOwner {
         PTInfo memory ptInfo = ptInfos[ptToken];
@@ -201,6 +205,13 @@ contract PendleStrategy is BaseSparkleXStrategy {
     // Trading Functions
     ///////////////////////////////
 
+    /**
+     * @notice Switch to ptTokenTo from ptTokenFrom
+     * @param ptTokenFrom the PT market to exit (either expire or active)
+     * @param ptTokenTo the PT market to enter (must be active)
+     * @param ptFromAmount Amount of ptTokenFrom to swap
+     * @param _swapData calldata from pendle SDK
+     */
     function rolloverPT(address ptTokenFrom, address ptTokenTo, uint256 ptFromAmount, bytes calldata _swapData)
         external
         onlyStrategistOrOwner
@@ -227,9 +238,10 @@ contract PendleStrategy is BaseSparkleXStrategy {
     }
 
     /**
-     * @notice Buy specific PT tokens with USDC
+     * @notice Buy specific PT tokens with given asset token
+     * @param _assetToken purchase PT with this asset
      * @param ptToken PT token to buy
-     * @param assetAmount Amount of USDC to spend
+     * @param assetAmount Amount of asset token to spend
      * @param _swapData calldata from pendle SDK
      */
     function buyPTWithAsset(address _assetToken, address ptToken, uint256 assetAmount, bytes calldata _swapData)
@@ -261,7 +273,8 @@ contract PendleStrategy is BaseSparkleXStrategy {
     }
 
     /**
-     * @notice Sell specific PT tokens for USDC
+     * @notice Sell specific PT tokens for given asset token
+     * @param _assetToken swap PT (before expire) for this asset
      * @param ptToken PT token to sell
      * @param ptAmount Amount of PT tokens to sell
      * @param _swapData calldata from pendle SDK
@@ -276,7 +289,8 @@ contract PendleStrategy is BaseSparkleXStrategy {
     }
 
     /**
-     * @notice Redeem mature PT tokens for asset
+     * @notice Redeem mature PT tokens for given asset token
+     * @param _assetToken redeem PT (after expire) for this asset
      * @param ptToken PT token to redeem
      * @param ptAmount Amount of PT tokens to redeem
      * @param _swapData calldata from pendle SDK
@@ -407,10 +421,13 @@ contract PendleStrategy is BaseSparkleXStrategy {
     /* 
      * @dev calculate the price of PT in asset deomination scaled by 1e18
      */
-    function getPTPrice(address ptToken) public view returns (uint256) {
+    function getPTPrice(address ptToken) external view returns (uint256) {
         return getPTPriceInAsset(address(_asset), ptToken);
     }
 
+    /**
+     * @return the price of ptToken denominated in given _assetToken
+     */
     function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
         PTInfo memory ptInfo = ptInfos[ptToken];
         // 1:1 value at maturity
@@ -433,10 +450,16 @@ contract PendleStrategy is BaseSparkleXStrategy {
             / (Constants.convertDecimalToUnit(_decimal) * uint256(_assetPrice));
     }
 
-    function getActivePTs() public view returns (address[] memory) {
+    /**
+     * @return active PT markets used by this strategy
+     */
+    function getActivePTs() external view returns (address[] memory) {
         return activePTs.values();
     }
 
+    /**
+     * @dev Sum all PT currently held by this strategy in _asset denomination
+     */
     function getAllPTAmountsInAsset() public view returns (uint256) {
         uint256 totalPTAmountInAsset;
         uint256 length = activePTs.length();

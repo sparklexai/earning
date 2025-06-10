@@ -76,6 +76,9 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return EtherFiHelper(_etherfiHelper).requestWithdrawFromEtherFi(_toWithdrawWeETH, _swapLoss);
     }
 
+    /**
+     * @dev complete the withdrawal request with etherfi and return _asset directly to vault
+     */
     function claimWithdrawFromEtherFi(uint256 _reqID) external onlyStrategist returns (uint256) {
         uint256 _claimed = EtherFiHelper(_etherfiHelper).claimWithdrawFromEtherFi(_reqID);
         _returnAssetToVault(_claimed);
@@ -86,6 +89,9 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     // core external methods
     ///////////////////////////////
 
+    /**
+     * @dev complete the withdrawal request with etherfi and repay debt in AAVE
+     */
     function claimAndRepay(uint256[] calldata _reqIds, uint256 _repayAmount) external onlyStrategist {
         uint256 _reqLen = _reqIds.length;
         if (_reqLen > 0) {
@@ -97,6 +103,10 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         if (_repayAmount > 0) _repayDebtToAAVE(_repayAmount);
     }
 
+    /**
+     * @dev withdraw as much as possible supply collateral (weETH) from AAVE
+     * @dev and submit etherfi withdrawal request
+     */
     function redeem(uint256 _supplyAmount) external override onlyStrategist returns (uint256) {
         (uint256 _margin, uint256 _debtInBorrow) = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
 
@@ -147,7 +157,8 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     }
 
     /**
-     * @dev by default, this method will try to maximize the leverage
+     * @dev by default, this method will try to maximize the allowed leverage by looping in AAVE
+     * @dev i.e., borrowing as much as possible ETH and convert to weETH for AAVE supply
      */
     function allocate(uint256 amount) external override onlyStrategist {
         if (amount == 0) {
@@ -163,6 +174,10 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         emit AllocateInvestment(msg.sender, amount);
     }
 
+    /**
+     * @dev use flashloan to deleverage the position in AAVE
+     * @dev and swap in curve to return amount to vault
+     */
     function collect(uint256 amount) public override onlyStrategistOrVault {
         if (amount == 0) {
             return;
@@ -172,6 +187,10 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         _returnAssetToVault(amount);
     }
 
+    /**
+     * @dev use flashloan to fully deleverage the position in AAVE
+     * @dev and swap in curve to return everything to vault
+     */
     function collectAll() external override onlyStrategistOrVault {
         collect(totalAssets());
     }
@@ -241,8 +260,8 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     ///////////////////////////////
     function totalAssets() public view override returns (uint256) {
         // Check how much we can claim from ether.fi
-        uint256 _weETHBalance = ERC20(address(weETH)).balanceOf(address(this));
-        uint256 _claimable = etherfiLP.getTotalEtherClaimOf(address(this)) + weETH.getEETHByWeETH(_weETHBalance);
+        uint256 _claimable = etherfiLP.getTotalEtherClaimOf(address(this))
+            + weETH.getEETHByWeETH(ERC20(address(weETH)).balanceOf(address(this)));
         uint256 _toWithdraw = assetsInCollection();
 
         // Check supply in AAVE if any
@@ -251,6 +270,9 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return _asset.balanceOf(address(this)) + _claimable + _toWithdraw + _netSupply;
     }
 
+    /**
+     * @return assets in etherfi withdrawal queue and not claimed yet
+     */
     function assetsInCollection() public view override returns (uint256) {
         return EtherFiHelper(_etherfiHelper).getAllPendingValue(address(this));
     }

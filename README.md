@@ -1,66 +1,21 @@
-## Foundry
+### Overview
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Classic ERC4626 design pattern is used to allow a 1:N mapping for one `SparkleXVault` to multiple strategies.
 
-Foundry consists of:
+Partners could use `SparkleXVault.depositWithReferral()` to mark associated deposits with a referral address which is useful for tracking referral earnings.
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Different from vanilla ERC4626 redemption(withdrawal), it is recommended to use `SparkleXVault.requestRedemption()` to unify the cases **when** there is enough idle asset (no wait needed) and **when** the redemption can't be satisfied immediately (has to be processed later such as request asset withdrwal from EtherFi).
 
-## Documentation
+### Strategies
 
-https://book.getfoundry.sh/
+Currently two strategies are in place:
 
-## Usage
+- `ETHEtherFiAAVEStrategy`: looping the deposit of `weETH` by borrowing `ETH` in AAVE while keeping a safe LTV
+- `PendleStrategy`: aims to actively search for good returns in Pendle markets by trading PTs
 
-### Build
+### Deployment
 
-```shell
-$ forge build
-```
+Foundry scipts are used to deploy & verify: 
 
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+- `script/DeployScript.s.sol` for core contracts like `SparkleXVault` 
+- `script/DeployPeriphery.s.sol` for periphery contracts like `TimelockController`

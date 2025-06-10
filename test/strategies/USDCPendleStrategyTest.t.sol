@@ -81,6 +81,9 @@ contract USDCPendleStrategyTest is TestUtils {
     bytes4 constant TARGET_SELECTOR_PENDLE2 = hex"594a88cc"; //swapExactPtForToken()
     bytes4 constant TARGET_SELECTOR_PENDLE3 = hex"47f1de22"; //redeemPyToToken()
 
+    // expect events
+    event AssetOracleAdded(address indexed assetToken, address indexed oracle);
+
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(usdc), "SparkleXVault", "SPXV");
         stkVOwner = stkVault.owner();
@@ -352,6 +355,12 @@ contract USDCPendleStrategyTest is TestUtils {
         (,,,,, uint128 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
         assertEq(0, _twapSeconds);
 
+        // some generous sugardaddy send PT1 to the strategy after PT1 removed
+        vm.startPrank(PT1_Whale);
+        ERC20(address(PT_ADDR1)).transfer(myStrategy, magicPTAmount);
+        vm.stopPrank();
+        assertTrue(ERC20(address(PT_ADDR1)).balanceOf(myStrategy) >= magicPTAmount);
+
         assertEq(IStrategy(myStrategy).totalAssets(), PendleStrategy(myStrategy).getPTAmountInAsset(address(PT_ADDR2)));
         _checkBasicInvariants(address(stkVault));
     }
@@ -467,6 +476,22 @@ contract USDCPendleStrategyTest is TestUtils {
         // ensure expired PT can't be added
         vm.expectRevert(Constants.PT_ALREADY_MATURED.selector);
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+    }
+
+    function test_SetAssetOracle() public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(strategyOwner);
+        PendleStrategy(myStrategy).setAssetOracle(usdc, Constants.ZRO_ADDR);
+        vm.stopPrank();
+
+        address USDT_USD_FEED = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
+        vm.expectEmit();
+        emit AssetOracleAdded(usdc, USDT_USD_FEED);
+
+        vm.startPrank(strategyOwner);
+        PendleStrategy(myStrategy).setAssetOracle(usdc, USDT_USD_FEED);
+        vm.stopPrank();
     }
 
     function _zapInWithPendlePT(
