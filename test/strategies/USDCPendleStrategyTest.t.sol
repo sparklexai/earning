@@ -494,6 +494,53 @@ contract USDCPendleStrategyTest is TestUtils {
         vm.stopPrank();
     }
 
+    function test_Invalid_Swap_Calldata(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+        _addPTMarket(address(MARKET_ADDR2), UNDERLYING_YIELD_ADDR2, YIELD_TOKEN_FEED2, 100);
+
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).allocate(type(uint256).max);
+        vm.stopPrank();
+
+        bytes memory _invalidSwapData = abi.encodeWithSelector(PendleStrategy.collectAll.selector);
+        vm.expectRevert(Constants.INVALID_SWAP_CALLDATA.selector);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).buyPTWithAsset(usdc, address(PT_ADDR1), _assetAmount, _invalidSwapData);
+        vm.stopPrank();
+
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), _assetAmount);
+
+        uint256 _pt1Balance = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
+        vm.expectRevert(Constants.INVALID_SWAP_CALLDATA.selector);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).rolloverPT(address(PT_ADDR1), address(PT_ADDR2), _pt1Balance, _invalidSwapData);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_SWAP_CALLDATA.selector);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).sellPTForAsset(usdc, address(PT_ADDR1), _pt1Balance, _invalidSwapData);
+        vm.stopPrank();
+
+        // forward to market expire
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        assertTrue(MARKET_ADDR1.isExpired());
+
+        vm.expectRevert(Constants.INVALID_SWAP_CALLDATA.selector);
+        vm.startPrank(strategist);
+        PendleStrategy(myStrategy).redeemPTForAsset(usdc, address(PT_ADDR1), _pt1Balance, _invalidSwapData);
+        vm.stopPrank();
+    }
+
     function _zapInWithPendlePT(
         address _assetToken,
         address _strategy,

@@ -147,16 +147,16 @@ contract PendleStrategy is BaseSparkleXStrategy {
         ) {
             revert Constants.INVALID_MARKET_TO_ADD();
         }
-        (IStandardizedYield _syToken, IPPrincipalToken _ptToken,) = IPMarketV3(marketAddress).readTokens();
-        if (ptInfos[address(_ptToken)].ptToken != Constants.ZRO_ADDR) {
-            revert Constants.PT_ALREADY_EXISTS();
-        }
         if (activePTs.length() >= MAX_PT_TOKENS) {
             revert Constants.MAX_PT_EXCEEDED();
         }
         // Verify market not expire
         if (IPMarketV3(marketAddress).isExpired()) {
             revert Constants.PT_ALREADY_MATURED();
+        }
+        (IStandardizedYield _syToken, IPPrincipalToken _ptToken,) = IPMarketV3(marketAddress).readTokens();
+        if (ptInfos[address(_ptToken)].ptToken != Constants.ZRO_ADDR) {
+            revert Constants.PT_ALREADY_EXISTS();
         }
 
         // Create PT info
