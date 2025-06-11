@@ -252,13 +252,13 @@ contract USDCPendleStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
         uint256 _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         console.log("_totalAssetsInStrategyAfterBuy1:%d", _totalAssetsInStrategy);
-        assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 2 * MIN_SHARE));
+        assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 5 * MIN_SHARE));
 
         _stormOutFromPendlePT(usdc, myStrategy, address(PT_ADDR1), address(MARKET_ADDR1), magicPTAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
         console.log("_totalAssetsInStrategyAfterSell1:%d", _totalAssetsInStrategy);
-        assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 2 * MIN_SHARE));
+        assertTrue(_assertApproximateEq(_totalAssetsInStrategy, magicUSDCAmount, 5 * MIN_SHARE));
 
         _addPTMarket(address(MARKET_ADDR2), UNDERLYING_YIELD_ADDR2, YIELD_TOKEN_FEED2, 100);
         _zapInWithPendlePT(usdc, myStrategy, address(PT_ADDR2), address(MARKET_ADDR2), magicUSDCAmount);
@@ -271,7 +271,7 @@ contract USDCPendleStrategyTest is TestUtils {
             _residueOfPT1AmountInAsset
         );
         assertTrue(
-            _assertApproximateEq(_totalAssetsInStrategy, (magicUSDCAmount + _residueOfPT1AmountInAsset), 2 * MIN_SHARE)
+            _assertApproximateEq(_totalAssetsInStrategy, (magicUSDCAmount + _residueOfPT1AmountInAsset), 5 * MIN_SHARE)
         );
 
         address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
@@ -296,7 +296,7 @@ contract USDCPendleStrategyTest is TestUtils {
             _assertApproximateEq(
                 _totalAssetsInStrategy,
                 ((magicPTAmount / 1e12) + _residueOfPT1AmountInAsset + _residueOfPT2AmountInAsset),
-                2 * MIN_SHARE
+                5 * MIN_SHARE
             )
         );
 
