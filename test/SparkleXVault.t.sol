@@ -460,12 +460,29 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         // make the replacement
+        uint256 _oldAlloc = 100;
         vm.startPrank(stkVOwner);
         stkVault.removeStrategy(address(_replacedStrategy));
-        stkVault.addStrategy(address(anewStrategy), 100);
+        stkVault.addStrategy(address(anewStrategy), _oldAlloc);
         vm.stopPrank();
         assertEq(address(anewStrategy), stkVault.allStrategies(MAX_STRATEGIES_NUM / 2));
         assertEq(MAX_STRATEGIES_NUM, stkVault.activeStrategies());
         _checkBasicInvariants(address(stkVault));
+
+        // update allocation for new strategy
+        uint256 _oldTotalAlloc = stkVault.strategiesAllocationSum();
+        uint256 _newAlloc = 12345;
+
+        vm.expectRevert(Constants.WRONG_STRATEGY_ALLOC_UPDATE.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.updateStrategyAllocation(address(anewStrategy), 0);
+        vm.stopPrank();
+
+        vm.startPrank(stkVOwner);
+        stkVault.updateStrategyAllocation(address(anewStrategy), _newAlloc);
+        vm.stopPrank();
+
+        assertEq(_newAlloc, stkVault.strategyAllocations(address(anewStrategy)));
+        assertEq(_oldTotalAlloc + _newAlloc - _oldAlloc, stkVault.strategiesAllocationSum());
     }
 }

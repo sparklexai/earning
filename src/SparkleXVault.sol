@@ -69,6 +69,7 @@ contract SparkleXVault is ERC4626, Ownable {
     event EarnRatioChanged(address indexed _caller, uint256 _new);
     event WithdrawFeeChanged(address indexed _caller, uint256 _new);
     event ManagementFeeChanged(address indexed _caller, uint256 _new);
+    event StrategyAllocationChanged(address indexed _caller, address indexed _strategy, uint256 _new);
 
     constructor(ERC20 _asset, string memory name_, string memory symbol_)
         ERC4626(_asset)
@@ -124,6 +125,15 @@ contract SparkleXVault is ERC4626, Ownable {
 
     function getFeeRecipient() external view returns (address) {
         return _feeRecipient;
+    }
+
+    function updateStrategyAllocation(address _strategy, uint256 _newAlloc) external onlyOwner {
+        if (strategyAllocations[_strategy] == 0 || _newAlloc == 0) {
+            revert Constants.WRONG_STRATEGY_ALLOC_UPDATE();
+        }
+        strategiesAllocationSum = strategiesAllocationSum + _newAlloc - strategyAllocations[_strategy];
+        strategyAllocations[_strategy] = _newAlloc;
+        emit StrategyAllocationChanged(msg.sender, _strategy, _newAlloc);
     }
 
     function setRedemptionClaimer(address _newClaimer) external onlyOwner {
