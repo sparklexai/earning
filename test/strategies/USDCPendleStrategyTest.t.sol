@@ -5,6 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {SparkleXVault} from "../../src/SparkleXVault.sol";
 import {TokenSwapper} from "../../src/utils/TokenSwapper.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {TestUtils} from "../TestUtils.sol";
 import {Constants} from "../../src/utils/Constants.sol";
@@ -15,6 +16,7 @@ import {IPRouterStatic} from "@pendle/contracts/interfaces/IPRouterStatic.sol";
 import {DummyDEXRouter} from "../mock/DummyDEXRouter.sol";
 import {PendleStrategy} from "../../src/strategies/pendle/PendleStrategy.sol";
 import {IStrategy} from "../../interfaces/IStrategy.sol";
+import {DummyPendleAAVEStrategy} from "../mock/DummyPendleAAVEStrategy.sol";
 
 // run this test with mainnet fork
 // forge coverage --fork-url <rpc_url> --match-path USDCPendleStrategyTest -vvv --no-match-coverage "(script|test)"
@@ -143,6 +145,49 @@ contract USDCPendleStrategyTest is TestUtils {
         (int256 _usdcUSDPrice,,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
         (int256 _yieldUSDPrice,,) = swapper.getPriceFromChainLink(YIELD_TOKEN_FEED1);
         assertEq(_ptPrice, (uint256(_yieldUSDPrice) * Constants.ONE_ETHER / uint256(_usdcUSDPrice)));
+    }
+
+    function test_Dummy_BaseAAVE_WithPendlePT() public {
+        DummyPendleAAVEStrategy _dummyPendleAaveStrategy = new DummyPendleAAVEStrategy(address(stkVault));
+
+        uint256 _supplyPTAmount = magicPTAmount;
+        uint256 _borrowAmount = magicUSDCAmount;
+
+        vm.startPrank(PT1_Whale);
+        ERC20(address(PT_ADDR1)).transfer(address(_dummyPendleAaveStrategy), _supplyPTAmount);
+        vm.stopPrank();
+
+        address _borrowWhale = mockRouter._usdtWhale();
+        vm.startPrank(_borrowWhale);
+        SafeERC20.safeTransfer(ERC20(mockRouter.usdt()), address(_dummyPendleAaveStrategy), _borrowAmount);
+        vm.stopPrank();
+
+        if (block.timestamp < PT_ADDR1.expiry()) {
+            vm.warp(PT_ADDR1.expiry() + 123);
+        }
+        assertTrue(PT_ADDR1.isExpired());
+
+        uint256 _totalAssets = _dummyPendleAaveStrategy.totalAssets();
+
+        assertTrue(
+            _assertApproximateEq(
+                _totalAssets,
+                (
+                    _dummyPendleAaveStrategy.convertFromBorrowToAsset(magicUSDCAmount)
+                        + _dummyPendleAaveStrategy.convertFromPTSupply(_supplyPTAmount, true)
+                ),
+                COMP_TOLERANCE
+            )
+        );
+
+        uint256 _supplyToBorrow = _dummyPendleAaveStrategy.convertFromPTSupply(_supplyPTAmount, false);
+        assertTrue(_supplyToBorrow > _borrowAmount);
+
+        uint256 _totalAssetToSupply = _dummyPendleAaveStrategy.convertToPTSupply(_totalAssets, true);
+        assertTrue(_totalAssetToSupply > _supplyPTAmount);
+
+        uint256 _borrowToSupply = _dummyPendleAaveStrategy.convertToPTSupply(_borrowAmount, false);
+        assertTrue(_totalAssetToSupply > _borrowToSupply);
     }
 
     ///////////////////////////////
@@ -537,6 +582,11 @@ contract USDCPendleStrategyTest is TestUtils {
 
         vm.expectRevert(Constants.INVALID_SWAP_CALLDATA.selector);
         vm.startPrank(strategist);
+        PendleStrategy(myStrategy).redeemPTForAsset(usdc, address(PT_ADDR1), _pt1Balance, _invalidSwapData);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST_OR_OWNER.selector);
+        vm.startPrank(_user);
         PendleStrategy(myStrategy).redeemPTForAsset(usdc, address(PT_ADDR1), _pt1Balance, _invalidSwapData);
         vm.stopPrank();
     }

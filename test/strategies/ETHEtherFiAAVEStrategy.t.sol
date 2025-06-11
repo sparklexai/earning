@@ -69,9 +69,20 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
 
         address _strategyOwner = myStrategy.owner();
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(_strategyOwner);
+        myStrategy.setSwapper(Constants.ZRO_ADDR);
+        vm.stopPrank();
+
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         vm.startPrank(_strategyOwner);
         myStrategy.setStrategist(Constants.ZRO_ADDR);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(_strategyOwner);
+        myStrategy.setAAVEHelper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
         vm.startPrank(_strategyOwner);
@@ -275,6 +286,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
 
         uint256 _portionVal2 = _portionVal * 2;
+        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST_OR_VAULT.selector);
+        vm.startPrank(_user);
+        myStrategy.collect(_portionVal2);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.collect(_portionVal2);
         vm.stopPrank();
@@ -326,6 +342,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256 _redemptioRequested2 = TestUtils._makeRedemptionRequest(_user2, _redemptionShare, address(stkVault));
 
         // borrow from AAVE position to satisfy redemption
+        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST.selector);
+        vm.startPrank(_user);
+        myStrategy.invest(0, _redemptionShare * 2);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.invest(0, _redemptionShare * 2);
         vm.stopPrank();

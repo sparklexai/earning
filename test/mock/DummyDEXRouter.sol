@@ -21,6 +21,7 @@ contract DummyDEXRouter is Test {
     address public constant usde = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
     address public constant susde = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
     address public constant usds = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
+    address public constant usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
     ///////////////////////////////
     // mainnet whales
@@ -29,6 +30,7 @@ contract DummyDEXRouter is Test {
     address public constant _usdeWhale = 0xf89d7b9c864f589bbF53a82105107622B35EaA40;
     address public constant _susdeWhale = 0x5563CDA70F7aA8b6C00C52CB3B9f0f45831a22b1;
     address public constant _usdsWhale = 0xf8191D98ae98d2f7aBDFB63A9b0b812b93C873AA;
+    address public constant _usdtWhale = 0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee;
 
     mapping(address => mapping(address => uint256)) public prices;
     mapping(address => address) public whales;
