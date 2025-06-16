@@ -10,6 +10,7 @@ import {TokenSwapper} from "../../utils/TokenSwapper.sol";
 import {AAVEHelper} from "./AAVEHelper.sol";
 import {IPMarketV3} from "@pendle/contracts/interfaces/IPMarketV3.sol";
 import {IPPrincipalToken} from "@pendle/contracts/interfaces/IPPrincipalToken.sol";
+import {IStandardizedYield} from "@pendle/contracts/interfaces/IStandardizedYield.sol";
 import {PendleHelper} from "../pendle/PendleHelper.sol";
 
 /**
@@ -81,13 +82,15 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     // earn with Pendle: Trading Functions
     ///////////////////////////////
     function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
+        address _syToken = IPPrincipalToken(ptToken).SY();
+        address _yieldToken = IStandardizedYield(_syToken).yieldToken();
         return TokenSwapper(_swapper).getPTPriceInAsset(
             _assetToken,
             TokenSwapper(_swapper).getAssetOracle(_assetToken),
             address(pendleMarket),
             TokenSwapper(_swapper).PENDLE_ORACLE_TWAP(),
-            TokenSwapper(_swapper).sUSDe(),
-            TokenSwapper(_swapper).sUSDe_FEED(),
+            _yieldToken,
+            TokenSwapper(_swapper).getAssetOracle(_yieldToken),
             Constants.ONE_ETHER
         );
     }
@@ -229,11 +232,10 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     // strategy customized methods
     ///////////////////////////////
     function totalAssets() public view override returns (uint256) {
+        ERC20 _ptToken = AAVEHelper(_aaveHelper)._supplyToken();
         // Check how much PT we have
         uint256 _ptBalance = PendleHelper(_pendleHelper)._getAmountInAsset(
-            address(_asset),
-            address(AAVEHelper(_aaveHelper)._supplyToken()),
-            AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this))
+            address(_asset), address(_ptToken), _ptToken.balanceOf(address(this))
         );
 
         // Check supply in AAVE if any

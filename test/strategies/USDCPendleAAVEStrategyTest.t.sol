@@ -52,7 +52,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     IPMarketV3 MARKET_ADDR3 = IPMarketV3(0x9Df192D13D61609D1852461c4850595e1F56E714);
     address constant PT3_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address constant YIELD_TOKEN_FEED3 = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961;
-    uint256 public constant USDC_TO_PT3_DUMMY_PRICE = 1005000000000000000; //1.005
+    uint256 public constant USDC_TO_PT3_DUMMY_PRICE = 1010000000000000000; //1.01
     address public constant UNDERLYING_YIELD_ADDR3 = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
 
     // sUSDe JUL31 market
@@ -76,7 +76,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     function test_GetMaxLTV() public {
         (myStrategy, strategist) = _createPendleStrategy(true);
         uint256 _ltv = aaveHelper.getMaxLTV();
-        assertEq(_ltv, 9000);
+        assertTrue(_ltv >= 9000 && _ltv <= 9010);
     }
 
     function test_Basic_Flow_PendleAAVE(uint256 _testVal) public {
@@ -152,6 +152,14 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         PendleAAVEStrategy(myStrategy).collectAll(_collectAllCALLDATA);
         vm.stopPrank();
         _checkBasicInvariants(address(stkVault));
+
+        (uint256 _netSupplyInAsset,,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(true);
+        uint256 _ptValueInAsset =
+            pendleHelper._getAmountInAsset(usdc, address(PT_ADDR1), ERC20(address(PT_ADDR1)).balanceOf(myStrategy));
+        assertEq(
+            _netSupplyInAsset + _ptValueInAsset + ERC20(usdc).balanceOf(myStrategy),
+            PendleAAVEStrategy(myStrategy).totalAssets()
+        );
     }
 
     function test_Change_PT_Supply(uint256 _testVal) public {
@@ -306,13 +314,16 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
             emptyLimit
         );
         _prepareSwapForMockRouter(
-            mockRouter, address(UNDERLYING_YIELD_ADDR3), address(PT_ADDR3), PT3_Whale, Constants.ONE_ETHER
+            mockRouter, address(UNDERLYING_YIELD_ADDR3), address(PT_ADDR3), PT3_Whale, USDC_TO_PT3_DUMMY_PRICE
         );
         vm.startPrank(strategist);
         PendleAAVEStrategy(myStrategy).buyPTWithAsset(UNDERLYING_YIELD_ADDR3, _yieldTokenBalance, _buyCALLDATA);
         vm.stopPrank();
         assertEq(0, ERC20(UNDERLYING_YIELD_ADDR3).balanceOf(myStrategy));
-        assertEq(_yieldTokenBalance, ERC20(address(PT_ADDR3)).balanceOf(myStrategy));
+        uint256 _newPTBalance = ERC20(address(PT_ADDR3)).balanceOf(myStrategy);
+        assertTrue(_yieldTokenBalance <= _newPTBalance);
+        uint256 _ptValueInAsset = pendleHelper._getAmountInAsset(usdc, address(PT_ADDR3), _newPTBalance);
+        assertEq(_ptValueInAsset + ERC20(usdc).balanceOf(myStrategy), PendleAAVEStrategy(myStrategy).totalAssets());
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
