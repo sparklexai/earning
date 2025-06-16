@@ -41,9 +41,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     event PTTokensPurchased(address indexed assetToken, address indexed ptToken, uint256 assetAmount, uint256 ptAmount);
     event PTTokensSwapped(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
 
-    constructor(address asset, address vault, address pendleRouter) BaseAAVEStrategy(ERC20(asset), vault) {
-        
-    }
+    constructor(address asset, address vault, address pendleRouter) BaseAAVEStrategy(ERC20(asset), vault) {}
 
     /**
      * @dev allow only called by strategist or owner or aavePool.
@@ -204,7 +202,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         if (_previews[0] == 1) {
             _swapPTToAsset(
                 address(_asset),
-                _capAmountByBalance(AAVEHelper(_aaveHelper)._supplyToken(), _previews[1] + _previews[2], false),
+                _capAmountByBalance(AAVEHelper(_aaveHelper)._supplyToken(), _previews[1], false),
                 _extraAction
             );
             return;
@@ -251,7 +249,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         returns (uint256)
     {
         uint256 amount = _capAllocationAmount(_assetAmount);
-        (bytes memory _prepareCalldata, , ) = abi.decode(_swapData, (bytes, uint256, bytes));
+        (bytes memory _prepareCalldata,,) = abi.decode(_swapData, (bytes, uint256, bytes));
         if (amount > 0 && _prepareCalldata.length > 0) {
             emit AllocateInvestment(msg.sender, amount);
             SafeERC20.safeTransferFrom(_asset, _vault, address(this), amount);
@@ -301,10 +299,13 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
 
         if (_lev) {
             // decode from _extraAction
-            (, , bytes memory _calldataInFL) = abi.decode(_extraAction, (bytes, uint256, bytes));
+            (,, bytes memory _calldataInFL) = abi.decode(_extraAction, (bytes, uint256, bytes));
 
             // Leverage: use flashloan to covert borrowed stablecoin to PT and then supply to AAVE
-            _supplyToAAVE(buyPTWithAsset(address(AAVEHelper(_aaveHelper)._borrowToken()), amount, _calldataInFL) + AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)));
+            _supplyToAAVE(
+                buyPTWithAsset(address(AAVEHelper(_aaveHelper)._borrowToken()), amount, _calldataInFL)
+                    + AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this))
+            );
             _borrowFromAAVE(_toRepay);
 
             uint256 _borrowResidue = AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this));
@@ -331,7 +332,11 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
                 _withdrawCollateralFromAAVE(_convertBorrowToSupply(_expected + _toRepay));
             }
 
-            _swapPTToAsset(address(AAVEHelper(_aaveHelper)._borrowToken()), AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)), _extraAction);
+            _swapPTToAsset(
+                address(AAVEHelper(_aaveHelper)._borrowToken()),
+                AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)),
+                _extraAction
+            );
 
             if (AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this)) < _toRepay) {
                 revert Constants.FAIL_TO_REPAY_FLASHLOAN_DELEVERAGE();

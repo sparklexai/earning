@@ -260,8 +260,8 @@ contract AAVEHelper is Ownable {
     function previewLeverageForInvest(uint256 _assetAmount, uint256 _borrowAmount) public view returns (uint256) {
         (uint256 _netSupply, uint256 _debtInSupply,) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);
 
-        uint256 _initSupply = _netSupply + _supplyToken.balanceOf(_strategy) 
-                              + BaseAAVEStrategy(_strategy)._convertAssetToSupply(_assetAmount);
+        uint256 _initSupply = _netSupply + _supplyToken.balanceOf(_strategy)
+            + BaseAAVEStrategy(_strategy)._convertAssetToSupply(_assetAmount);
 
         if (_initSupply == 0) {
             revert Constants.ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
@@ -285,7 +285,7 @@ contract AAVEHelper is Ownable {
      * [0, _assetBalance] to indicate that strategy has enough asset to collect directly
      * [1, _supplyRequired, _supplyResidue] to indicate that strategy need to convert _supplyToken of _supplyRequired amout directly
      * [2, _supplyRequired, _supplyResidue] to indicate that strategy need to withdraw _supplyToken from AAVE first then convert _supplyRequired amout
-     * [3, _supplyRequired, _supplyResidue] to indicate flashloan based deleverage required
+     * [3, _netSuppliedAsset, _toBorrowForFull, _toBorrowForPortion, _amountForExtraAction] to indicate flashloan based deleverage required
      */
     function previewCollect(uint256 _amountToCollect) public view virtual returns (uint256[] memory) {
         uint256[] memory _result;
@@ -300,8 +300,7 @@ contract AAVEHelper is Ownable {
 
         uint256 _supplyResidue = _supplyToken.balanceOf(_strategy);
         uint256 _supplyRequired = BaseAAVEStrategy(_strategy)._convertAssetToSupply(_amountToCollect - _residue);
-        (uint256 _netSupplyAsset, uint256 _debtAsset, uint256 _totalSupply) =
-            BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(true);
+        (uint256 _netSupplyAsset, uint256 _debtAsset,) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(true);
         // simply convert _supplyToken back to _asset if no need to interact with AAVE
         // case [1]
         if (_supplyRequired <= _supplyResidue || _netSupplyAsset == 0) {
@@ -322,18 +321,21 @@ contract AAVEHelper is Ownable {
             return _result;
         }
 
-        // case [3]
+        // case [3] deleverage using flashloan
+        uint256 _threshold = applyLeverageMargin(_netSupplyAsset);
         _result = new uint256[](5);
         _result[0] = 3;
         _result[1] = _netSupplyAsset;
         // borrow amount for full deleverage
         _result[2] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_debtAsset);
-        // borrow amount for portion deleverage
-        _result[3] = _amountToCollect < _netSupplyAsset ? getMaxLeverage(_amountToCollect) : _result[2];
-        // withdrawn _supplyToken
-        _result[4] = _amountToCollect < _netSupplyAsset
-            ? BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_result[3] + _amountToCollect)
-            : _totalSupply;
+        if (_amountToCollect < _threshold) {
+            _result[3] = getMaxLeverage(_amountToCollect);
+            _result[4] = BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_result[3] + _amountToCollect);
+        } else {
+            _result[3] = _result[2];
+            (,, uint256 _totalInSupply) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);
+            _result[4] = _totalInSupply;
+        }
         return _result;
     }
 

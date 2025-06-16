@@ -37,8 +37,10 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     constructor(ERC20 token, address vault) BaseSparkleXStrategy(token, vault) {}
 
     function setAAVEHelper(address _newHelper) external onlyOwner {
-        if (_newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)
-           || address(AAVEHelper(_newHelper)._borrowToken()) != address(_asset)) {
+        if (
+            _newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)
+                || address(AAVEHelper(_newHelper)._borrowToken()) != address(_asset)
+        ) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
         emit AAVEHelperChanged(_aaveHelper, _newHelper);
@@ -189,7 +191,9 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         }
 
         _prepareSupplyFromAsset(_assetAmount, _extraAction);
-        uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(_capAmountByBalance(_asset, _assetAmount, false), _borrowAmount);
+        uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(
+            _capAmountByBalance(_asset, _assetAmount, false), _borrowAmount
+        );
 
         // use flashloan to leverage position
         aavePool.flashLoanSimple(

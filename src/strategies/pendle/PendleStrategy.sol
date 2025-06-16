@@ -59,9 +59,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     event PTTokensRedeemed(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
     event AssetOracleAdded(address indexed assetToken, address indexed oracle);
 
-    constructor(ERC20 token, address vault, address assetOracle)
-        BaseSparkleXStrategy(token, vault)
-    {
+    constructor(ERC20 token, address vault, address assetOracle) BaseSparkleXStrategy(token, vault) {
         if (assetOracle == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }

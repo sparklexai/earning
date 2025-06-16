@@ -193,7 +193,9 @@ contract TokenSwapper is Ownable {
         if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {
             revert Constants.WRONG_SWAP_RECEIVER();
         }
-        return _callPendleRouter(_pendleRouter, _inputToken, _outputToken, _inAmount, _minOut, _swapCallData, _receiverDecoded);
+        return _callPendleRouter(
+            _pendleRouter, _inputToken, _outputToken, _inAmount, _minOut, _swapCallData, _receiverDecoded
+        );
     }
 
     /**

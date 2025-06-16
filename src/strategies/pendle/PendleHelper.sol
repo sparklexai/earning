@@ -176,7 +176,7 @@ contract PendleHelper {
     }
 
     function _getAmountInAsset(address _assetToken, address ptToken, uint256 ptAmount) public view returns (uint256) {
-        if (ptAmount == 0){
+        if (ptAmount == 0) {
             return ptAmount;
         }
         return TokenSwapper(_swapper).getPTAmountInAsset(
@@ -185,7 +185,7 @@ contract PendleHelper {
     }
 
     function _getAmountInPT(address _assetToken, address ptToken, uint256 assetAmount) public view returns (uint256) {
-        if (assetAmount == 0){
+        if (assetAmount == 0) {
             return assetAmount;
         }
         return TokenSwapper(_swapper).getAssetAmountInPT(
