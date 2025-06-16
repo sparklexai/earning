@@ -200,13 +200,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(myStrategy));
 
         // change to new PT
-        vm.startPrank(aaveHelper.owner());
-        aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 10);
-        vm.stopPrank();
-        vm.startPrank(PendleAAVEStrategy(myStrategy).owner());
-        PendleAAVEStrategy(myStrategy).setPendleMarket(address(MARKET_ADDR3));
-        vm.stopPrank();
-        assertEq(9010, aaveHelper.getMaxLTV());
+        _changeSettingToNewPT();
 
         _prepareCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR3), 0, magicUSDCAmount);
         _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR3), 0, _initDebt);
@@ -219,6 +213,106 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         _checkBasicInvariants(address(stkVault));
         (,, uint256 _totalInAsset) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(true);
         _assertApproximateEq(_totalInAsset, (_initSupply + _initDebt), 1 * MIN_SHARE);
+    }
+
+    function test_FullDeloop_Pendle(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        uint256 _initSupply = magicUSDCAmount;
+        uint256 _initDebt = magicUSDCAmountLeveraged; //aaveHelper.previewLeverageForInvest(_initSupply, _initDebt);
+        bytes memory _prepareCALLDATA =
+            _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, magicUSDCAmount);
+        bytes memory _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, _initDebt);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).invest(
+            _initSupply, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
+        );
+        vm.stopPrank();
+
+        _prepareSwapForMockRouter(
+            mockRouter,
+            address(PT_ADDR1),
+            usdc,
+            usdcWhale,
+            (Constants.ONE_ETHER * Constants.ONE_ETHER / USDC_TO_PT1_DUMMY_PRICE)
+        );
+        (, uint256 _debtInAsset,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(true);
+
+        for (uint256 i = 0; i < 30; i++) {
+            uint256 _toRedeem = aaveHelper.getMaxRedeemableAmount();
+
+            bytes memory _redeemCALLDATA = _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _toRedeem);
+            vm.startPrank(strategist);
+            PendleAAVEStrategy(myStrategy).redeem(_toRedeem, _redeemCALLDATA);
+            vm.stopPrank();
+
+            (, _debtInAsset,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(true);
+            console.log("i:%d,_debtInAsset:%d", (i + 1), _debtInAsset);
+            if (_debtInAsset == 0) {
+                break;
+            }
+        }
+        assertEq(_debtInAsset, 0);
+
+        // redeem anything left from AAVE
+        (uint256 _netSupply,,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(false);
+        bytes memory EMPTY_CALLDATA;
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).redeem(_netSupply, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (_netSupply,,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(false);
+        assertEq(_netSupply, 0);
+
+        // sell PT for underlying yield token
+        DummyDEXRouter.TokenOutput memory _sellOutput = _getDummyTokenOutput(UNDERLYING_YIELD_ADDR3, 0);
+        DummyDEXRouter.LimitOrderData memory emptyLimit;
+        uint256 _ptResidueAmount = ERC20(address(PT_ADDR1)).balanceOf(myStrategy);
+        bytes memory _sellCALLDATA = abi.encodeWithSelector(
+            DummyDEXRouter.swapExactPtForToken.selector,
+            myStrategy,
+            address(MARKET_ADDR1),
+            _ptResidueAmount,
+            _sellOutput,
+            emptyLimit
+        );
+        _prepareSwapForMockRouter(
+            mockRouter, address(PT_ADDR1), address(UNDERLYING_YIELD_ADDR3), mockRouter._usdeWhale(), 150e16
+        );
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).swapPTForAsset(UNDERLYING_YIELD_ADDR3, _ptResidueAmount, false, _sellCALLDATA);
+        vm.stopPrank();
+        assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(myStrategy));
+
+        // change to new PT
+        _changeSettingToNewPT();
+
+        // buy new PT with underlying yield token
+        uint256 _yieldTokenBalance = ERC20(UNDERLYING_YIELD_ADDR3).balanceOf(myStrategy);
+        DummyDEXRouter.TokenInput memory _buyInput = _getDummyTokenInput(UNDERLYING_YIELD_ADDR3, _yieldTokenBalance);
+        bytes memory _buyCALLDATA = abi.encodeWithSelector(
+            DummyDEXRouter.swapExactTokenForPt.selector,
+            myStrategy,
+            address(MARKET_ADDR3),
+            0,
+            _pendleSwapApproxParams,
+            _buyInput,
+            emptyLimit
+        );
+        _prepareSwapForMockRouter(
+            mockRouter, address(UNDERLYING_YIELD_ADDR3), address(PT_ADDR3), PT3_Whale, Constants.ONE_ETHER
+        );
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).buyPTWithAsset(UNDERLYING_YIELD_ADDR3, _yieldTokenBalance, _buyCALLDATA);
+        vm.stopPrank();
+        assertEq(0, ERC20(UNDERLYING_YIELD_ADDR3).balanceOf(myStrategy));
+        assertEq(_yieldTokenBalance, ERC20(address(PT_ADDR3)).balanceOf(myStrategy));
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
@@ -289,5 +383,17 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.stopPrank();
 
         return (_deployedStrategy, PendleAAVEStrategy(_deployedStrategy).strategist());
+    }
+
+    function _changeSettingToNewPT() internal {
+        vm.startPrank(aaveHelper.owner());
+        aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 10);
+        vm.stopPrank();
+
+        vm.startPrank(PendleAAVEStrategy(myStrategy).owner());
+        PendleAAVEStrategy(myStrategy).setPendleMarket(address(MARKET_ADDR3));
+        vm.stopPrank();
+
+        assertEq(9010, aaveHelper.getMaxLTV());
     }
 }

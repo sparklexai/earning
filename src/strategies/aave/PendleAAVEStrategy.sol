@@ -168,10 +168,12 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
 
         _supplyAmount = _withdrawCollateralFromAAVE(_supplyAmount > _margin ? _margin : _supplyAmount);
         uint256 _ptAmount = _capAmountByBalance(AAVEHelper(_aaveHelper)._supplyToken(), _supplyAmount, false);
-
-        uint256 _repaidDebt = _swapPTToAsset(address(AAVEHelper(_aaveHelper)._borrowToken()), _ptAmount, _extraAction);
-        if (_repaidDebt > 0) {
-            _repayDebtToAAVE(_repaidDebt);
+        uint256 _repaidDebt;
+        if (_extraAction.length > 0) {
+            _repaidDebt = _swapPTToAsset(address(AAVEHelper(_aaveHelper)._borrowToken()), _ptAmount, _extraAction);
+            if (_repaidDebt > 0) {
+                _repayDebtToAAVE(_repaidDebt);
+            }
         }
 
         return _repaidDebt;

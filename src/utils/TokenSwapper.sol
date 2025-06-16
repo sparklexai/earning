@@ -52,10 +52,12 @@ contract TokenSwapper is Ownable {
     address public constant usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address public constant usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address public constant usds = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
+    address public constant usde = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
     address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
     address public constant USDT_USD_Feed = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
     address public constant USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address public constant USDS_USD_Feed = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
+    address public constant USDe_FEED = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961;
 
     ///////////////////////////////
     // events
@@ -330,6 +332,8 @@ contract TokenSwapper is Ownable {
             return USDS_USD_Feed;
         } else if (_token == sUSDe) {
             return sUSDe_FEED;
+        } else if (_token == usde) {
+            return USDe_FEED;
         } else {
             return Constants.ZRO_ADDR;
         }
