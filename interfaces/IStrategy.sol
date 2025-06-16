@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
-interface IStrategy{
-
+interface IStrategy {
     /**
      * @dev Returns the address of the underlying token used by the strategy, should be same as Vault's.
      */
@@ -25,28 +24,31 @@ interface IStrategy{
 
     /**
      * @dev make investment of underlying asset with given amount from Vault into this strategy
+     * @param _extraAction extra bytes data, which is used for any followup action required.
      */
-    function allocate(uint256 amount) external;
+    function allocate(uint256 amount, bytes calldata _extraAction) external;
 
     /**
-     * @dev recycle investment with given amount from this strategy back to Vault 
+     * @dev recycle investment with given amount from this strategy back to Vault
+     * @param _extraAction extra bytes data, which is used for any followup action required.
      */
-    function collect(uint256 amount) external;
+    function collect(uint256 amount, bytes calldata _extraAction) external;
 
     /**
-     * @dev recycle all remaining investment from this strategy back to Vault 
+     * @dev recycle all remaining investment from this strategy back to Vault
+     * @param _extraAction extra bytes data, which is used for any followup action required.
      */
-    function collectAll() external;
+    function collectAll(bytes calldata _extraAction) external;
 
     /**
      * @dev Returns the address of the strategist who could handle some critical missions for this strategy.
      */
-    function strategist() external view returns (address strategist);    
+    function strategist() external view returns (address strategist);
 
     /**
      * @dev issue this event when investment allocation triggered by strategist.
      */
-    event AllocateInvestment(address indexed _strategist, uint256 _allocationAmount);  
+    event AllocateInvestment(address indexed _strategist, uint256 _allocationAmount);
 
     /**
      * @dev issue this event when investment collection triggered by strategist or vault.

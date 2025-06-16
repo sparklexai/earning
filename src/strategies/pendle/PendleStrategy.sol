@@ -11,6 +11,7 @@ import {Constants} from "../../utils/Constants.sol";
 import {IPMarketV3} from "@pendle/contracts/interfaces/IPMarketV3.sol";
 import {IPPrincipalToken} from "@pendle/contracts/interfaces/IPPrincipalToken.sol";
 import {IStandardizedYield} from "@pendle/contracts/interfaces/IStandardizedYield.sol";
+import {PendleHelper} from "./PendleHelper.sol";
 
 // Structs for multi-PT management
 struct PTInfo {
@@ -30,15 +31,11 @@ contract PendleStrategy is BaseSparkleXStrategy {
     ///////////////////////////////
     // Constants and State Variables
     ///////////////////////////////
-    address public _pendleRouter;
     mapping(address => address) _assetOracles;
+    address public _pendleHelper;
 
     // Pendle contract addresses (Ethereum mainnet)
     address public constant PENDLE_ROUTER_V4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
-    bytes4 public constant TARGET_SELECTOR_BUY = hex"c81f847a"; //swapExactTokenForPt()
-    bytes4 public constant TARGET_SELECTOR_SELL = hex"594a88cc"; //swapExactPtForToken()
-    bytes4 public constant TARGET_SELECTOR_REDEEM = hex"47f1de22"; //redeemPyToToken()
-    bytes4 public constant TARGET_SELECTOR_REFLECT = hex"9fa02c86"; //callAndReflect()
 
     uint256 public constant MAX_PT_TOKENS = 10;
 
@@ -49,6 +46,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     ///////////////////////////////
     // Events
     ///////////////////////////////
+    event PendleHelperChanged(address indexed _old, address indexed _new);
     event PTAdded(
         address indexed market, address indexed underlyingYieldToken, address indexed _caller, uint32 twapSeconds
     );
@@ -61,7 +59,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     event PTTokensRedeemed(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
     event AssetOracleAdded(address indexed assetToken, address indexed oracle);
 
-    constructor(ERC20 token, address vault, address pendleRouter, address assetOracle)
+    constructor(ERC20 token, address vault, address assetOracle)
         BaseSparkleXStrategy(token, vault)
     {
         if (assetOracle == Constants.ZRO_ADDR) {
@@ -69,8 +67,6 @@ contract PendleStrategy is BaseSparkleXStrategy {
         }
         _assetOracles[address(token)] = assetOracle;
         emit AssetOracleAdded(address(token), assetOracle);
-
-        _pendleRouter = pendleRouter == Constants.ZRO_ADDR ? PENDLE_ROUTER_V4 : pendleRouter;
     }
 
     function setAssetOracle(address _asset, address _oracle) external onlyOwner {
@@ -79,6 +75,14 @@ contract PendleStrategy is BaseSparkleXStrategy {
         }
         _assetOracles[_asset] = _oracle;
         emit AssetOracleAdded(_asset, _oracle);
+    }
+
+    function setPendleHelper(address _newHelper) external onlyOwner {
+        if (_newHelper == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
+        emit PendleHelperChanged(_pendleHelper, _newHelper);
+        _pendleHelper = _newHelper;
     }
 
     ///////////////////////////////
@@ -96,7 +100,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     /**
      * @dev simply transfer _asset with given amount from vault to this strategy
      */
-    function allocate(uint256 amount) public override onlyStrategistOrVault {
+    function allocate(uint256 amount, bytes calldata _extraAction) public override onlyStrategistOrVault {
         amount = _capAllocationAmount(amount);
         if (amount == 0) {
             return;
@@ -105,7 +109,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         emit AllocateInvestment(msg.sender, amount);
     }
 
-    function collect(uint256 amount) external override onlyStrategistOrVault {
+    function collect(uint256 amount, bytes calldata _extraAction) external override onlyStrategistOrVault {
         if (amount == 0) {
             return;
         }
@@ -116,7 +120,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     /**
      * @dev ensure PT in all pendle market has been swapped back to asset
      */
-    function collectAll() external override onlyStrategistOrVault {
+    function collectAll(bytes calldata _extraAction) external override onlyStrategistOrVault {
         if (getAllPTAmountsInAsset() > 0) {
             revert Constants.PT_STILL_IN_USE();
         }
@@ -215,26 +219,23 @@ contract PendleStrategy is BaseSparkleXStrategy {
     function rolloverPT(address ptTokenFrom, address ptTokenTo, uint256 ptFromAmount, bytes calldata _swapData)
         external
         onlyStrategistOrOwner
+        returns (uint256)
     {
         if (ptInfos[ptTokenFrom].ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
         }
         _checkMarketValidity(ptTokenTo, true);
-
-        ptFromAmount = _capAmountByBalance(ERC20(ptTokenFrom), ptFromAmount, false);
-        if (ptFromAmount == 0) {
-            revert Constants.ZERO_TO_SWAP_IN_PENDLE();
-        }
-        uint256 _minOut = _getMinExpectedPTForRollover(ptTokenFrom, ptTokenTo, ptFromAmount);
-        bytes4 _funcSelector = _getFunctionSelector(_swapData);
-        if (_funcSelector != TARGET_SELECTOR_REFLECT) {
-            revert Constants.INVALID_SWAP_CALLDATA();
-        }
-        _approveToken(ptTokenFrom, _swapper);
-        uint256 ptReceived = TokenSwapper(_swapper).chainSwapWithPendleRouter(
-            _pendleRouter, ptTokenFrom, ptTokenTo, ptFromAmount, _minOut, _swapData
+        _approveToken(ptTokenFrom, _pendleHelper);
+        uint256 ptReceived = PendleHelper(_pendleHelper)._swapPTForRollOver(
+            ptTokenFrom,
+            ptTokenTo,
+            ptFromAmount,
+            _swapData,
+            TokenSwapper(_swapper).TARGET_SELECTOR_REFLECT(),
+            address(_asset)
         );
         emit PTTokensRollover(ptTokenFrom, ptTokenTo, ptFromAmount, ptReceived);
+        return ptReceived;
     }
 
     /**
@@ -247,29 +248,21 @@ contract PendleStrategy is BaseSparkleXStrategy {
     function buyPTWithAsset(address _assetToken, address ptToken, uint256 assetAmount, bytes calldata _swapData)
         external
         onlyStrategistOrOwner
+        returns (uint256)
     {
         _checkMarketValidity(ptToken, true);
         if (_assetToken == address(_asset)) {
             uint256 _assetBalance = _asset.balanceOf(address(this));
             if (assetAmount > _assetBalance) {
-                allocate(assetAmount - _assetBalance);
+                allocate(assetAmount - _assetBalance, _swapData);
             }
         }
-
-        assetAmount = _capAmountByBalance(ERC20(_assetToken), assetAmount, false);
-        if (assetAmount == 0) {
-            revert Constants.ZERO_TO_SWAP_IN_PENDLE();
-        }
-        uint256 _minOut = _getMinExpectedPT(_assetToken, ptToken, assetAmount);
-        bytes4 _funcSelector = _getFunctionSelector(_swapData);
-        if (_funcSelector != TARGET_SELECTOR_BUY) {
-            revert Constants.INVALID_SWAP_CALLDATA();
-        }
-        _approveToken(_assetToken, _swapper);
-        uint256 ptReceived = TokenSwapper(_swapper).swapWithPendleRouter(
-            _pendleRouter, _assetToken, ptToken, assetAmount, _minOut, _swapData
+        _approveToken(_assetToken, _pendleHelper);
+        uint256 ptReceived = PendleHelper(_pendleHelper)._swapAssetForPT(
+            _assetToken, ptToken, assetAmount, _swapData, TokenSwapper(_swapper).TARGET_SELECTOR_BUY()
         );
         emit PTTokensPurchased(_assetToken, ptToken, assetAmount, ptReceived);
+        return ptReceived;
     }
 
     /**
@@ -282,10 +275,15 @@ contract PendleStrategy is BaseSparkleXStrategy {
     function sellPTForAsset(address _assetToken, address ptToken, uint256 ptAmount, bytes calldata _swapData)
         public
         onlyStrategistOrOwner
+        returns (uint256)
     {
         _checkMarketValidity(ptToken, true);
-        uint256 assetAmount = _swapPTForAsset(_assetToken, ptToken, ptAmount, _swapData, TARGET_SELECTOR_SELL);
+        _approveToken(ptToken, _pendleHelper);
+        uint256 assetAmount = PendleHelper(_pendleHelper)._swapPTForAsset(
+            _assetToken, ptToken, ptAmount, _swapData, TokenSwapper(_swapper).TARGET_SELECTOR_SELL()
+        );
         emit PTTokensSold(_assetToken, ptToken, ptAmount, assetAmount);
+        return assetAmount;
     }
 
     /**
@@ -298,37 +296,20 @@ contract PendleStrategy is BaseSparkleXStrategy {
     function redeemPTForAsset(address _assetToken, address ptToken, uint256 ptAmount, bytes calldata _swapData)
         public
         onlyStrategistOrOwner
+        returns (uint256)
     {
         _checkMarketValidity(ptToken, false);
-        uint256 assetAmount = _swapPTForAsset(_assetToken, ptToken, ptAmount, _swapData, TARGET_SELECTOR_REDEEM);
+        _approveToken(ptToken, _pendleHelper);
+        uint256 assetAmount = PendleHelper(_pendleHelper)._swapPTForAsset(
+            _assetToken, ptToken, ptAmount, _swapData, TokenSwapper(_swapper).TARGET_SELECTOR_REDEEM()
+        );
         emit PTTokensRedeemed(_assetToken, ptToken, ptAmount, assetAmount);
+        return assetAmount;
     }
 
     ///////////////////////////////
     // Internal Functions
     ///////////////////////////////
-
-    function _swapPTForAsset(
-        address _assetToken,
-        address ptToken,
-        uint256 ptAmount,
-        bytes calldata _swapData,
-        bytes4 _targetSelector
-    ) internal returns (uint256) {
-        ptAmount = _capAmountByBalance(ERC20(ptToken), ptAmount, false);
-        if (ptAmount == 0) {
-            revert Constants.ZERO_TO_SWAP_IN_PENDLE();
-        }
-        uint256 _minOut = _getMinExpectedAsset(_assetToken, ptToken, ptAmount);
-        bytes4 _funcSelector = _getFunctionSelector(_swapData);
-        if (_funcSelector != _targetSelector) {
-            revert Constants.INVALID_SWAP_CALLDATA();
-        }
-        _approveToken(ptToken, _swapper);
-        return TokenSwapper(_swapper).swapWithPendleRouter(
-            _pendleRouter, ptToken, _assetToken, ptAmount, _minOut, _swapData
-        );
-    }
 
     /* 
      * @dev By default SY is 1:1 mapping of underlying yieldToken 
@@ -338,68 +319,12 @@ contract PendleStrategy is BaseSparkleXStrategy {
         return Constants.ONE_ETHER;
     }
 
-    function _getMinExpectedPTForRollover(address _ptTokenFrom, address _ptTokenTo, uint256 _ptAmountFrom)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 _fromInAsset = _getAmountInAsset(address(_asset), _ptTokenFrom, _ptAmountFrom);
-        uint256 _outInTheory = _getAmountInPT(address(_asset), _ptTokenTo, _fromInAsset);
-        return _outInTheory;
-    }
-
-    function _getMinExpectedPT(address _assetToken, address _ptToken, uint256 _assetIn)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 _outInTheory = _getAmountInPT(_assetToken, _ptToken, _assetIn);
-        return _outInTheory;
-    }
-
-    function _getMinExpectedAsset(address _assetToken, address _ptToken, uint256 _ptIn)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 _outInTheory = _getAmountInAsset(_assetToken, _ptToken, _ptIn);
-        return _outInTheory;
-    }
-
-    function _getAmountInAsset(address _assetToken, address ptToken, uint256 ptAmount)
-        internal
-        view
-        returns (uint256)
-    {
-        return ptAmount * getPTPriceInAsset(_assetToken, ptToken)
-            * Constants.convertDecimalToUnit(ERC20(_assetToken).decimals())
-            / (Constants.convertDecimalToUnit(ERC20(ptToken).decimals()) * Constants.ONE_ETHER);
-    }
-
-    function _getAmountInPT(address _assetToken, address ptToken, uint256 assetAmount)
-        internal
-        view
-        returns (uint256)
-    {
-        return assetAmount * Constants.ONE_ETHER * Constants.convertDecimalToUnit(ERC20(ptToken).decimals())
-            / (Constants.convertDecimalToUnit(ERC20(_assetToken).decimals()) * getPTPriceInAsset(_assetToken, ptToken));
-    }
-
-    function _getFunctionSelector(bytes calldata _data) internal pure returns (bytes4) {
-        bytes4 selector = bytes4(_data[:4]);
-        return selector;
-    }
-
     function _checkMarketValidity(address _ptToken, bool _beforeExpire) internal view {
         PTInfo memory ptInfo = ptInfos[_ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
         }
-        if (_beforeExpire && IPMarketV3(ptInfo.market).isExpired()) {
-            revert Constants.PT_ALREADY_MATURED();
-        } else if (!_beforeExpire && !IPMarketV3(ptInfo.market).isExpired()) {
-            revert Constants.PT_NOT_MATURED();
-        }
+        PendleHelper(_pendleHelper)._checkMarketValidityWithMarket(_ptToken, ptInfo.market, _beforeExpire);
     }
 
     ///////////////////////////////
@@ -414,7 +339,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (ptBalance == 0) {
             return ptBalance;
         } else {
-            return _getAmountInAsset(address(_asset), ptToken, ptBalance);
+            return PendleHelper(_pendleHelper)._getAmountInAsset(address(_asset), ptToken, ptBalance);
         }
     }
 
@@ -430,24 +355,15 @@ contract PendleStrategy is BaseSparkleXStrategy {
      */
     function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
         PTInfo memory ptInfo = ptInfos[ptToken];
-        // 1:1 value at maturity
-        uint256 _ptPriceInSY = IPMarketV3(ptInfo.market).isExpired()
-            ? Constants.ONE_ETHER
-            : TokenSwapper(_swapper).getPTPriceInSYFromPendle(ptInfo.market, ptInfo.syOracleTwapSeconds);
-        uint256 _pt2UnderlyingRateScaled = _ptPriceInSY * _syToUnderlyingRate(ptInfo.syToken) * Constants.ONE_ETHER
-            / (Constants.ONE_ETHER * Constants.ONE_ETHER);
-
-        if (ptInfo.underlyingYield == _assetToken) {
-            return _pt2UnderlyingRateScaled;
-        }
-
-        // ensure asset and underlying oracles return prices in same base unit like USD
-        (int256 _underlyingPrice,, uint8 _decimal) =
-            TokenSwapper(_swapper).getPriceFromChainLink(ptInfo.underlyingOracle);
-        (int256 _assetPrice,, uint8 _assetPriceDecimal) =
-            TokenSwapper(_swapper).getPriceFromChainLink(_assetOracles[_assetToken]);
-        return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * uint256(_underlyingPrice)
-            / (Constants.convertDecimalToUnit(_decimal) * uint256(_assetPrice));
+        return TokenSwapper(_swapper).getPTPriceInAsset(
+            _assetToken,
+            _assetOracles[_assetToken],
+            ptInfo.market,
+            ptInfo.syOracleTwapSeconds,
+            ptInfo.underlyingYield,
+            ptInfo.underlyingOracle,
+            _syToUnderlyingRate(ptInfo.syToken)
+        );
     }
 
     /**

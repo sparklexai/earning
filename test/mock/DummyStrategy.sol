@@ -43,15 +43,15 @@ contract DummyStrategy {
         return _assetsInCollection;
     }
 
-    function allocate(uint256 amount) external {
+    function allocate(uint256 amount, bytes calldata _extraAction) external {
         ERC20(_asset).transferFrom(_vault, address(this), amount);
     }
 
-    function collect(uint256 amount) external {
+    function collect(uint256 amount, bytes calldata _extraAction) external {
         ERC20(_asset).transferFrom(address(this), _vault, amount);
     }
 
-    function collectAll() external {
+    function collectAll(bytes calldata _extraAction) external {
         ERC20(_asset).transferFrom(address(this), _vault, ERC20(_asset).balanceOf(address(this)));
     }
 

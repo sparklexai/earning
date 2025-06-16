@@ -10,9 +10,18 @@ import {Constants} from "./Constants.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IOracleAggregatorV3} from "../../interfaces/chainlink/IOracleAggregatorV3.sol";
+import {IPMarketV3} from "@pendle/contracts/interfaces/IPMarketV3.sol";
 
 interface PendleOracleInterface {
     function getPtToSyRate(address market, uint32 duration) external view returns (uint256);
+}
+
+interface IPendleStrategy {
+    function _pendleHelper() external view returns (address);
+}
+
+interface IPendleHelper {
+    function _strategy() external view returns (address);
 }
 
 contract TokenSwapper is Ownable {
@@ -31,6 +40,22 @@ contract TokenSwapper is Ownable {
     ICurveRouter curveRouter = ICurveRouter(0x16C6521Dff6baB339122a0FE25a9116693265353);
     address pendleRouteV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
     PendleOracleInterface pendleOracle = PendleOracleInterface(0x9a9Fa8338dd5E5B2188006f1Cd2Ef26d921650C2);
+    bytes4 public constant TARGET_SELECTOR_BUY = hex"c81f847a"; //swapExactTokenForPt()
+    bytes4 public constant TARGET_SELECTOR_SELL = hex"594a88cc"; //swapExactPtForToken()
+    bytes4 public constant TARGET_SELECTOR_REDEEM = hex"47f1de22"; //redeemPyToToken()
+    bytes4 public constant TARGET_SELECTOR_REFLECT = hex"9fa02c86"; //callAndReflect()
+
+    ///////////////////////////////
+    // stalecoins and related chainlink oracles - Ethereum mainnet
+    ///////////////////////////////
+    address public constant sUSDe = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
+    address public constant usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    address public constant usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address public constant usds = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
+    address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
+    address public constant USDT_USD_Feed = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
+    address public constant USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
+    address public constant USDS_USD_Feed = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
 
     ///////////////////////////////
     // events
@@ -165,10 +190,10 @@ contract TokenSwapper is Ownable {
         bytes calldata _swapCallData
     ) external returns (uint256) {
         address _receiverDecoded = _getReceiverFromPendleCalldata(_swapCallData);
-        if (_receiverDecoded != msg.sender) {
+        if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {
             revert Constants.WRONG_SWAP_RECEIVER();
         }
-        return _callPendleRouter(_pendleRouter, _inputToken, _outputToken, _inAmount, _minOut, _swapCallData);
+        return _callPendleRouter(_pendleRouter, _inputToken, _outputToken, _inAmount, _minOut, _swapCallData, _receiverDecoded);
     }
 
     /**
@@ -184,7 +209,7 @@ contract TokenSwapper is Ownable {
     ) external returns (uint256) {
         (,,, bytes memory _reflectCall) = abi.decode(_swapCallData[4:], (address, bytes, bytes, bytes));
         address _receiverDecoded = this._getReceiverFromPendleCalldata(_reflectCall);
-        if (_receiverDecoded != msg.sender) {
+        if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {
             revert Constants.WRONG_SWAP_RECEIVER();
         }
         return _callPendleRouter(
@@ -193,7 +218,8 @@ contract TokenSwapper is Ownable {
             _outputToken,
             _inAmount,
             (_minOut * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS),
-            _swapCallData
+            _swapCallData,
+            _receiverDecoded
         );
     }
 
@@ -203,14 +229,15 @@ contract TokenSwapper is Ownable {
         address _outputToken,
         uint256 _inAmount,
         uint256 _minOut,
-        bytes calldata _swapCallData
+        bytes calldata _swapCallData,
+        address _receiverDecoded
     ) internal returns (uint256) {
         address _router = _pendleRouter == Constants.ZRO_ADDR ? pendleRouteV4 : _pendleRouter;
         SafeERC20.safeTransferFrom(ERC20(_inputToken), msg.sender, address(this), _inAmount);
         _approveTokenToDex(_inputToken, _router);
-        uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(msg.sender);
+        uint256 _outputBalBefore = ERC20(_outputToken).balanceOf(_receiverDecoded);
         address(_router).functionCall(_swapCallData);
-        uint256 _actualOut = ERC20(_outputToken).balanceOf(msg.sender) - _outputBalBefore;
+        uint256 _actualOut = ERC20(_outputToken).balanceOf(_receiverDecoded) - _outputBalBefore;
         if (applySlippageMargin(_actualOut) < _minOut) {
             revert Constants.SWAP_OUT_TOO_SMALL();
         }
@@ -235,7 +262,74 @@ contract TokenSwapper is Ownable {
         );
     }
 
+    function getPTPriceInAsset(
+        address _assetToken,
+        address _assetOracle,
+        address _ptMarket,
+        uint32 _twapSeconds,
+        address _underlyingYield,
+        address _underlyingYieldOracle,
+        uint256 _syToUnderlyingRate
+    ) public view returns (uint256) {
+        // 1:1 value at maturity
+        uint256 _ptPriceInSY =
+            IPMarketV3(_ptMarket).isExpired() ? Constants.ONE_ETHER : getPTPriceInSYFromPendle(_ptMarket, _twapSeconds);
+        uint256 _pt2UnderlyingRateScaled =
+            _ptPriceInSY * _syToUnderlyingRate * Constants.ONE_ETHER / (Constants.ONE_ETHER * Constants.ONE_ETHER);
+
+        if (_underlyingYield == _assetToken) {
+            return _pt2UnderlyingRateScaled;
+        }
+
+        // ensure asset and underlying oracles return prices in same base unit like USD
+        (int256 _underlyingPrice,, uint8 _decimal) = getPriceFromChainLink(_underlyingYieldOracle);
+        (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLink(_assetOracle);
+        return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * uint256(_underlyingPrice)
+            / (Constants.convertDecimalToUnit(_decimal) * uint256(_assetPrice));
+    }
+
+    function getPTAmountInAsset(address _assetToken, address ptToken, uint256 ptAmount, uint256 _ptPrice)
+        external
+        view
+        returns (uint256)
+    {
+        return ptAmount * _ptPrice * Constants.convertDecimalToUnit(ERC20(_assetToken).decimals())
+            / (Constants.convertDecimalToUnit(ERC20(ptToken).decimals()) * Constants.ONE_ETHER);
+    }
+
+    function getAssetAmountInPT(address _assetToken, address ptToken, uint256 assetAmount, uint256 _ptPrice)
+        external
+        view
+        returns (uint256)
+    {
+        return assetAmount * Constants.ONE_ETHER * Constants.convertDecimalToUnit(ERC20(ptToken).decimals())
+            / (Constants.convertDecimalToUnit(ERC20(_assetToken).decimals()) * _ptPrice);
+    }
+
     function _getReceiverFromPendleCalldata(bytes calldata _data) public pure returns (address) {
         return abi.decode(_data[4:36], (address));
+    }
+
+    function _getFunctionSelector(bytes calldata _data) external pure returns (bytes4) {
+        bytes4 selector = bytes4(_data[:4]);
+        return selector;
+    }
+
+    function checkSupportedStablecoins(address _token) external view returns (bool) {
+        return (_token == usdt || _token == usdc || _token == usds);
+    }
+
+    function getAssetOracle(address _token) external view returns (address) {
+        if (_token == usdt) {
+            return USDT_USD_Feed;
+        } else if (_token == usdc) {
+            return USDC_USD_Feed;
+        } else if (_token == usds) {
+            return USDS_USD_Feed;
+        } else if (_token == sUSDe) {
+            return sUSDe_FEED;
+        } else {
+            return Constants.ZRO_ADDR;
+        }
     }
 }

@@ -5,6 +5,7 @@ import "forge-std/Script.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {ETHEtherFiAAVEStrategy} from "../src/strategies/aave/ETHEtherFiAAVEStrategy.sol";
 import {PendleStrategy} from "../src/strategies/pendle/PendleStrategy.sol";
+import {PendleHelper} from "../src/strategies/pendle/PendleHelper.sol";
 import {AAVEHelper} from "../src/strategies/aave/AAVEHelper.sol";
 import {EtherFiHelper} from "../src/strategies/etherfi/EtherFiHelper.sol";
 import {TokenSwapper} from "../src/utils/TokenSwapper.sol";
@@ -40,7 +41,9 @@ contract DeployScript is Script {
 
         SparkleXVault stkVault2 = new SparkleXVault(ERC20(usdc), "SparkleX-USDC-Vault", "SPX-USDC-V");
 
-        PendleStrategy myStrategy2 = new PendleStrategy(ERC20(usdc), address(stkVault2), pendleRouteV4, USDC_USD_Feed);
+        PendleStrategy myStrategy2 = new PendleStrategy(ERC20(usdc), address(stkVault2), USDC_USD_Feed);
+
+        PendleHelper pendleHelper = new PendleHelper(address(myStrategy2), pendleRouteV4, address(tokenSwapper));
 
         // Contract linking
         stkVault.addStrategy(address(myStrategy), 100);
@@ -54,6 +57,8 @@ contract DeployScript is Script {
         stkVault2.addStrategy(address(myStrategy2), 100);
 
         myStrategy2.setSwapper(address(tokenSwapper));
+
+        myStrategy2.setPendleHelper(address(pendleHelper));
 
         vm.stopBroadcast();
     }

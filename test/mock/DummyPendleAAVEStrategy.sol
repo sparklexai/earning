@@ -22,25 +22,29 @@ contract DummyPendleAAVEStrategy is BaseAAVEStrategy {
     address public constant sUSDePT = 0x3b3fB9C57858EF816833dC91565EFcd85D96f634;
     address public constant asUSDePT = 0xDE6eF6CB4aBd3A473ffC2942eEf5D84536F8E864;
 
-    constructor(address vault) BaseAAVEStrategy(ERC20(usdc), vault, ERC20(sUSDePT), ERC20(usdt), ERC20(asUSDePT)) {}
+    ERC20 public _supplyToken = ERC20(sUSDePT);
+    ERC20 public _borrowToken = ERC20(usdt);
+    ERC20 public _supplyAToken = ERC20(asUSDePT);
 
-    function allocate(uint256 amount) external {
+    constructor(address vault) BaseAAVEStrategy(ERC20(usdc), vault) {}
+
+    function allocate(uint256 amount, bytes calldata _extraAction) external override {
         _asset.transferFrom(_vault, address(this), amount);
     }
 
-    function assetsInCollection() external view returns (uint256) {
+    function assetsInCollection() external view override returns (uint256) {
         return 0;
     }
 
-    function collect(uint256 amount) external {
+    function collect(uint256 amount, bytes calldata _extraAction) public override {
         _asset.transferFrom(address(this), _vault, amount);
     }
 
-    function collectAll() external {
+    function collectAll(bytes calldata _extraAction) public override {
         _asset.transferFrom(address(this), _vault, totalAssets());
     }
 
-    function totalAssets() public view returns (uint256) {
+    function totalAssets() public view override returns (uint256) {
         uint256 _supply2Asset = convertFromPTSupply(_supplyToken.balanceOf(address(this)), true);
         uint256 _borrow2Asset = convertFromBorrowToAsset(_borrowToken.balanceOf(address(this)));
         return _asset.balanceOf(address(this)) + _supply2Asset + _borrow2Asset;

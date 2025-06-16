@@ -205,7 +205,7 @@ contract SparkleXVault is ERC4626, Ownable {
         emit StrategyAdded(_strategyAddr, _allocation);
     }
 
-    function removeStrategy(address _strategyAddr) external onlyOwner {
+    function removeStrategy(address _strategyAddr, bytes calldata _extraAction) external onlyOwner {
         uint256 _strategyAlloc = strategyAllocations[_strategyAddr];
         if (_strategyAlloc == 0 || IStrategy(_strategyAddr).vault() != address(this)) {
             revert Constants.WRONG_STRATEGY_TO_REMOVE();
@@ -214,7 +214,7 @@ contract SparkleXVault is ERC4626, Ownable {
         if (IStrategy(_strategyAddr).assetsInCollection() > 0) {
             revert Constants.STRATEGY_COLLECTION_IN_PROCESS();
         }
-        IStrategy(_strategyAddr).collectAll();
+        IStrategy(_strategyAddr).collectAll(_extraAction);
 
         strategiesAllocationSum = strategiesAllocationSum - _strategyAlloc;
 

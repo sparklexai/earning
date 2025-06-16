@@ -9,6 +9,8 @@ import {IAaveOracle} from "../../../interfaces/aave/IAaveOracle.sol";
 import {DataTypes} from "../../../interfaces/aave/DataTypes.sol";
 import {Constants} from "../../utils/Constants.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {BaseAAVEStrategy} from "./BaseAAVEStrategy.sol";
+import {TokenSwapper} from "../../utils/TokenSwapper.sol";
 
 contract AAVEHelper is Ownable {
     using Math for uint256;
@@ -19,6 +21,7 @@ contract AAVEHelper is Ownable {
     uint8 constant ETH_CATEGORY_AAVE = 1;
     uint8 constant sUSDe_CATEGORY_AAVE = 2;
     uint8 constant USDe_CATEGORY_AAVE = 11;
+    uint8 constant sUSDePT_CATEGORY_AAVE = 8;
 
     /**
      * @dev variable rate.
@@ -39,10 +42,10 @@ contract AAVEHelper is Ownable {
     ///////////////////////////////
     // member storage
     ///////////////////////////////
-    uint8 public immutable _eMode;
-    ERC20 public immutable _supplyToken;
-    ERC20 public immutable _borrowToken;
-    ERC20 public immutable _supplyAToken;
+    uint8 public _eMode;
+    ERC20 public _supplyToken;
+    ERC20 public _borrowToken;
+    ERC20 public _supplyAToken;
     address public immutable _strategy;
 
     ///////////////////////////////
@@ -54,22 +57,21 @@ contract AAVEHelper is Ownable {
     event SupplyToAAVE(address indexed _caller, uint256 _supplied, uint256 _mintedAToken, uint256 _health);
     event BorrowFromAAVE(address indexed _caller, uint256 _borrowed, uint256 _health);
     event RepayDebtInAAVE(address indexed _caller, uint256 _repaidETH, uint256 _health);
+    event AAVEHelperTokensChanged(
+        address indexed supplyAToken, address indexed supplyToken, address indexed borrowToken
+    );
 
     constructor(address strategy, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode)
         Ownable(msg.sender)
     {
         _strategy = strategy;
 
-        supplyToken.approve(address(aavePool), type(uint256).max);
-        borrowToken.approve(address(aavePool), type(uint256).max);
-        supplyAToken.approve(address(aavePool), type(uint256).max);
-
-        _supplyToken = supplyToken;
-        _borrowToken = borrowToken;
-        _supplyAToken = supplyAToken;
+        _setTokensAndApprovals(supplyToken, borrowToken, supplyAToken);
 
         // Enable E Mode in AAVE for correlated assets
-        require(_checkEMode(eMode), "!invalid emode category");
+        if (!_checkEMode(eMode)) {
+            revert Constants.WRONG_EMODE();
+        }
         aavePool.setUserEMode(eMode);
         _eMode = eMode;
 
@@ -83,11 +85,42 @@ contract AAVEHelper is Ownable {
         LEVERAGE_RATIO_BPS = _ratio;
     }
 
+    function setTokens(ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken) external onlyOwner {
+        if (
+            address(supplyToken) == Constants.ZRO_ADDR || address(borrowToken) == Constants.ZRO_ADDR
+                || address(supplyAToken) == Constants.ZRO_ADDR
+        ) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
+
+        (uint256 _netSupply, uint256 _debt,) = getSupplyAndDebt(true);
+        if (_netSupply > 0 || _debt > 0) {
+            revert Constants.POSITION_STILL_IN_USE();
+        }
+
+        _setTokensAndApprovals(supplyToken, borrowToken, supplyAToken);
+
+        emit AAVEHelperTokensChanged(address(supplyAToken), address(supplyToken), address(borrowToken));
+    }
+
+    function _setTokensAndApprovals(ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken) internal {
+        _supplyToken = supplyToken;
+        _borrowToken = borrowToken;
+        _supplyAToken = supplyAToken;
+
+        _supplyToken.approve(address(aavePool), type(uint256).max);
+        _borrowToken.approve(address(aavePool), type(uint256).max);
+        _supplyAToken.approve(address(aavePool), type(uint256).max);
+    }
+
     ///////////////////////////////
     // supply/withdraw and borrow/repay within AAVE
     ///////////////////////////////
 
     function supplyToAAVE(uint256 _supplyAmount) external returns (uint256) {
+        if (msg.sender != _strategy) {
+            revert Constants.INVALID_HELPER_CALLER();
+        }
         SafeERC20.safeTransferFrom(_supplyToken, msg.sender, address(this), _supplyAmount);
 
         uint256 _aTokenBefore = _supplyAToken.balanceOf(msg.sender);
@@ -101,6 +134,9 @@ contract AAVEHelper is Ownable {
     }
 
     function borrowFromAAVE(uint256 _toBorrow) external returns (uint256) {
+        if (msg.sender != _strategy) {
+            revert Constants.INVALID_HELPER_CALLER();
+        }
         uint256 _toBorrowBefore = _borrowToken.balanceOf(address(this));
         aavePool.borrow(address(_borrowToken), _toBorrow, 2, 0, msg.sender);
         uint256 _toBorrowAfter = _borrowToken.balanceOf(address(this));
@@ -113,6 +149,9 @@ contract AAVEHelper is Ownable {
     }
 
     function repayDebtToAAVE(uint256 _debtToRepay) external returns (uint256) {
+        if (msg.sender != _strategy) {
+            revert Constants.INVALID_HELPER_CALLER();
+        }
         uint256 _borrowTokenOnBehalf = _borrowToken.balanceOf(msg.sender);
         SafeERC20.safeTransferFrom(_borrowToken, msg.sender, address(this), _borrowTokenOnBehalf);
 
@@ -175,7 +214,7 @@ contract AAVEHelper is Ownable {
     /**
      * @dev Return supply and borrow amount in their own denominations and base unit
      */
-    function getTotalSupplyAndDebt(address _position) external view returns (uint256, uint256, uint256, uint256) {
+    function getTotalSupplyAndDebt(address _position) public view returns (uint256, uint256, uint256, uint256) {
         (uint256 totalCollateralBase, uint256 totalDebtBase,,,,) = aavePool.getUserAccountData(_position);
         uint256 _cAmount = totalCollateralBase > 0
             ? convertFromBaseAmount(
@@ -200,7 +239,10 @@ contract AAVEHelper is Ownable {
     }
 
     function _checkEMode(uint8 _mode) internal pure returns (bool) {
-        return (_mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE);
+        return (
+            _mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE
+                || _mode == sUSDePT_CATEGORY_AAVE
+        );
     }
 
     function applyLeverageMargin(uint256 _max) public view returns (uint256) {
@@ -209,5 +251,122 @@ contract AAVEHelper is Ownable {
 
     function getSafeLeveragedSupply(uint256 _initialSupply) public view returns (uint256) {
         return LEVERAGE_RATIO_BPS > 0 ? applyLeverageMargin(getMaxLeverage(_initialSupply)) : _initialSupply;
+    }
+
+    /**
+     * @dev strategist could use this method to estimate the required amount of _borrowToken in flashloan for calling invest()
+     * @dev The borrowed amount will be converted to _supplyToken later in flashloan callback
+     */
+    function previewLeverageForInvest(uint256 _assetAmount, uint256 _borrowAmount) public view returns (uint256) {
+        (uint256 _netSupply, uint256 _debtInSupply,) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);
+
+        uint256 _initSupply = _netSupply + _supplyToken.balanceOf(_strategy) 
+                              + BaseAAVEStrategy(_strategy)._convertAssetToSupply(_assetAmount);
+
+        if (_initSupply == 0) {
+            revert Constants.ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
+        }
+
+        uint256 _safeLeveraged = getSafeLeveragedSupply(_initSupply);
+
+        if (_safeLeveraged <= _initSupply + _debtInSupply) {
+            revert Constants.FAIL_TO_SAFE_LEVERAGE();
+        }
+        uint256 _supplyToLeverage = _safeLeveraged - _initSupply - _debtInSupply;
+
+        uint256 _toBorrow = BaseAAVEStrategy(_strategy)._convertSupplyToBorrow(_supplyToLeverage);
+        _toBorrow = _toBorrow > _borrowAmount ? _borrowAmount : _toBorrow;
+        return _toBorrow;
+    }
+
+    /**
+     * @dev strategist could use this method to estimate the amount required to prepare for calling collect()
+     * @dev possible results are:
+     * [0, _assetBalance] to indicate that strategy has enough asset to collect directly
+     * [1, _supplyRequired, _supplyResidue] to indicate that strategy need to convert _supplyToken of _supplyRequired amout directly
+     * [2, _supplyRequired, _supplyResidue] to indicate that strategy need to withdraw _supplyToken from AAVE first then convert _supplyRequired amout
+     * [3, _supplyRequired, _supplyResidue] to indicate flashloan based deleverage required
+     */
+    function previewCollect(uint256 _amountToCollect) public view virtual returns (uint256[] memory) {
+        uint256[] memory _result;
+        uint256 _residue = ERC20(BaseAAVEStrategy(_strategy).asset()).balanceOf(_strategy);
+        // case [0]
+        if (_residue >= _amountToCollect) {
+            _result = new uint256[](2);
+            _result[0] = 0;
+            _result[1] = _residue;
+            return _result;
+        }
+
+        uint256 _supplyResidue = _supplyToken.balanceOf(_strategy);
+        uint256 _supplyRequired = BaseAAVEStrategy(_strategy)._convertAssetToSupply(_amountToCollect - _residue);
+        (uint256 _netSupplyAsset, uint256 _debtAsset, uint256 _totalSupply) =
+            BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(true);
+        // simply convert _supplyToken back to _asset if no need to interact with AAVE
+        // case [1]
+        if (_supplyRequired <= _supplyResidue || _netSupplyAsset == 0) {
+            _result = new uint256[](3);
+            _result[0] = 1;
+            _result[1] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_supplyRequired);
+            _result[2] = _supplyResidue;
+            return _result;
+        }
+
+        // withdraw supply from AAVE if no debt taken, i.e., no leverage
+        // case [2]
+        if (_debtAsset == 0) {
+            _result = new uint256[](3);
+            _result[0] = 2;
+            _result[1] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_supplyRequired);
+            _result[2] = _supplyResidue;
+            return _result;
+        }
+
+        // case [3]
+        _result = new uint256[](5);
+        _result[0] = 3;
+        _result[1] = _netSupplyAsset;
+        // borrow amount for full deleverage
+        _result[2] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_debtAsset);
+        // borrow amount for portion deleverage
+        _result[3] = _amountToCollect < _netSupplyAsset ? getMaxLeverage(_amountToCollect) : _result[2];
+        // withdrawn _supplyToken
+        _result[4] = _amountToCollect < _netSupplyAsset
+            ? BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_result[3] + _amountToCollect)
+            : _totalSupply;
+        return _result;
+    }
+
+    /**
+     * @dev fetch net supply, borrowed debt and total supply amounts in given denomination
+     * @param _inAssetDenomination true for result in asset denomination or false in supply token denomination
+     */
+    function getSupplyAndDebt(bool _inAssetDenomination)
+        public
+        view
+        returns (uint256 _netSupply, uint256 _debt, uint256 _totalSupply)
+    {
+        (uint256 _cAmount, uint256 _dAmount, uint256 totalCollateralBase, uint256 totalDebtBase) =
+            getTotalSupplyAndDebt(_strategy);
+
+        if (_inAssetDenomination) {
+            _debt = totalDebtBase > 0 ? BaseAAVEStrategy(_strategy)._convertBorrowToAsset(_dAmount) : 0;
+            _totalSupply = totalCollateralBase > 0 ? BaseAAVEStrategy(_strategy)._convertSupplyToAsset(_cAmount) : 0;
+            _netSupply = totalCollateralBase > 0 ? _totalSupply - _debt : 0;
+        } else {
+            _debt = totalDebtBase > 0 ? BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_dAmount) : 0;
+            _totalSupply = totalCollateralBase > 0 ? _cAmount : 0;
+            _netSupply = totalCollateralBase > 0 ? _cAmount - _debt : 0;
+        }
+    }
+
+    function getMaxRedeemableAmount() public view returns (uint256) {
+        (uint256 _margin, uint256 _debtInBorrow) = getAvailableBorrowAmount(_strategy);
+
+        if (_margin == 0) {
+            return _margin;
+        } else {
+            return _debtInBorrow > 0 ? BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_margin) : type(uint256).max;
+        }
     }
 }
