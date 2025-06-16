@@ -22,11 +22,7 @@ contract AAVEHelper is Ownable {
     uint8 constant sUSDe_CATEGORY_AAVE = 2;
     uint8 constant USDe_CATEGORY_AAVE = 11;
     uint8 constant sUSDePT_CATEGORY_AAVE = 8;
-
-    /**
-     * @dev variable rate.
-     */
-    uint256 constant INTEREST_MODE = 2;
+    uint8 constant USDePT_CATEGORY_AAVE = 10;
 
     /**
      * @dev leverage ratio in AAVE with looping supply and borrow.
@@ -58,7 +54,7 @@ contract AAVEHelper is Ownable {
     event BorrowFromAAVE(address indexed _caller, uint256 _borrowed, uint256 _health);
     event RepayDebtInAAVE(address indexed _caller, uint256 _repaidETH, uint256 _health);
     event AAVEHelperTokensChanged(
-        address indexed supplyAToken, address indexed supplyToken, address indexed borrowToken
+        address indexed supplyAToken, address indexed supplyToken, address indexed borrowToken, uint8 eMode
     );
 
     constructor(address strategy, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode)
@@ -69,13 +65,18 @@ contract AAVEHelper is Ownable {
         _setTokensAndApprovals(supplyToken, borrowToken, supplyAToken);
 
         // Enable E Mode in AAVE for correlated assets
+        _setEMode(eMode);
+
+        emit AAVEHelperCreated(_strategy, address(supplyToken), address(borrowToken), _eMode);
+    }
+
+    function _setEMode(uint8 eMode) internal {
+        // Enable E Mode in AAVE for correlated assets
         if (!_checkEMode(eMode)) {
             revert Constants.WRONG_EMODE();
         }
         aavePool.setUserEMode(eMode);
         _eMode = eMode;
-
-        emit AAVEHelperCreated(_strategy, address(supplyToken), address(borrowToken), _eMode);
     }
 
     function setLeverageRatio(uint256 _ratio) external onlyOwner {
@@ -85,7 +86,7 @@ contract AAVEHelper is Ownable {
         LEVERAGE_RATIO_BPS = _ratio;
     }
 
-    function setTokens(ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken) external onlyOwner {
+    function setTokens(ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode) external onlyOwner {
         if (
             address(supplyToken) == Constants.ZRO_ADDR || address(borrowToken) == Constants.ZRO_ADDR
                 || address(supplyAToken) == Constants.ZRO_ADDR
@@ -99,8 +100,9 @@ contract AAVEHelper is Ownable {
         }
 
         _setTokensAndApprovals(supplyToken, borrowToken, supplyAToken);
+        _setEMode(eMode);
 
-        emit AAVEHelperTokensChanged(address(supplyAToken), address(supplyToken), address(borrowToken));
+        emit AAVEHelperTokensChanged(address(supplyAToken), address(supplyToken), address(borrowToken), eMode);
     }
 
     function _setTokensAndApprovals(ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken) internal {
@@ -241,7 +243,7 @@ contract AAVEHelper is Ownable {
     function _checkEMode(uint8 _mode) internal pure returns (bool) {
         return (
             _mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE
-                || _mode == sUSDePT_CATEGORY_AAVE
+                || _mode == sUSDePT_CATEGORY_AAVE || _mode == USDePT_CATEGORY_AAVE
         );
     }
 

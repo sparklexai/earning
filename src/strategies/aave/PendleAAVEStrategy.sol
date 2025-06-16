@@ -64,6 +64,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
             revert Constants.DIFFERENT_TOKEN_IN_AAVE_HELPER();
         }
 
+        _prepareAllowanceForHelper();
         emit PendleMarketChanged(address(pendleMarket), _newMarket);
         pendleMarket = IPMarketV3(_newMarket);
     }

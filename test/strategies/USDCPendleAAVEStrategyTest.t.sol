@@ -46,8 +46,19 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     address public constant sUSDe = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
     address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
 
+    // USDe JUL31 market
+    IPPrincipalToken PT_ADDR3 = IPPrincipalToken(0x917459337CaAC939D41d7493B3999f571D20D667);
+    address YT_ADDR3 = 0x733Ee9Ba88f16023146EbC965b7A1Da18a322464;
+    IPMarketV3 MARKET_ADDR3 = IPMarketV3(0x9Df192D13D61609D1852461c4850595e1F56E714);
+    address constant PT3_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address constant YIELD_TOKEN_FEED3 = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961;
+    uint256 public constant USDC_TO_PT3_DUMMY_PRICE = 1005000000000000000; //1.005
+    address public constant UNDERLYING_YIELD_ADDR3 = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
+
     // sUSDe JUL31 market
     address public constant PT_ATOKEN_ADDR1 = 0xDE6eF6CB4aBd3A473ffC2942eEf5D84536F8E864;
+    // USDe JUL31 market
+    address public constant PT_ATOKEN_ADDR3 = 0x312ffC57778CEfa11989733e6E08143E7E229c1c;
 
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(usdc), "SparkleXVault", "SPXV");
@@ -140,6 +151,74 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.startPrank(strategist);
         PendleAAVEStrategy(myStrategy).collectAll(_collectAllCALLDATA);
         vm.stopPrank();
+        _checkBasicInvariants(address(stkVault));
+    }
+
+    function test_Change_PT_Supply(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        uint256 _initSupply = magicUSDCAmount;
+        uint256 _initDebt = magicUSDCAmountLeveraged; //aaveHelper.previewLeverageForInvest(_initSupply, _initDebt);
+
+        bytes memory _prepareCALLDATA =
+            _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, magicUSDCAmount);
+        bytes memory _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, _initDebt);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).invest(
+            _initSupply, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
+        );
+        vm.stopPrank();
+        _checkBasicInvariants(address(stkVault));
+
+        (,, uint256 _totalInSupply) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(false);
+        bytes memory _collectAllCALLDATA =
+            _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _totalInSupply);
+        _prepareSwapForMockRouter(
+            mockRouter,
+            address(PT_ADDR1),
+            usdc,
+            usdcWhale,
+            (Constants.ONE_ETHER * Constants.ONE_ETHER / USDC_TO_PT1_DUMMY_PRICE)
+        );
+        uint256 _vaultBalance = ERC20(usdc).balanceOf(address(stkVault));
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).collectAll(_collectAllCALLDATA);
+        vm.stopPrank();
+        uint256 _vaultBalanceAfter = ERC20(usdc).balanceOf(address(stkVault));
+        console.log("_vaultBalance:%d,_vaultBalanceAfter:%d", _vaultBalance, _vaultBalanceAfter);
+        assertTrue(_assertApproximateEq(magicUSDCAmount, (_vaultBalanceAfter - _vaultBalance), 10 * MIN_SHARE));
+        _checkBasicInvariants(address(stkVault));
+        (,, _totalInSupply) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(false);
+        assertEq(0, _totalInSupply);
+        assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(myStrategy));
+
+        // change to new PT
+        vm.startPrank(aaveHelper.owner());
+        aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 10);
+        vm.stopPrank();
+        vm.startPrank(PendleAAVEStrategy(myStrategy).owner());
+        PendleAAVEStrategy(myStrategy).setPendleMarket(address(MARKET_ADDR3));
+        vm.stopPrank();
+        assertEq(9010, aaveHelper.getMaxLTV());
+
+        _prepareCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR3), 0, magicUSDCAmount);
+        _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR3), 0, _initDebt);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR3), PT3_Whale, USDC_TO_PT3_DUMMY_PRICE);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).invest(
+            _initSupply, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
+        );
+        vm.stopPrank();
+        _checkBasicInvariants(address(stkVault));
+        (,, uint256 _totalInAsset) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(true);
+        _assertApproximateEq(_totalInAsset, (_initSupply + _initDebt), 1 * MIN_SHARE);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
