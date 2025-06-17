@@ -153,7 +153,8 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             return;
         }
 
-        _deleverageByFlashloan(_previews[1], _previews[2], _expectedAsset, _previews[3], _extraAction);
+        uint256 _expected = _previews[3] == _previews[2] ? 0 : _expectedAsset;
+        _deleverageByFlashloan(_previews[1], _previews[2], _expected, _previews[3], _extraAction);
     }
 
     ///////////////////////////////

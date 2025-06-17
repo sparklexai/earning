@@ -302,41 +302,49 @@ contract AAVEHelper is Ownable {
 
         uint256 _supplyResidue = _supplyToken.balanceOf(_strategy);
         uint256 _supplyRequired = BaseAAVEStrategy(_strategy)._convertAssetToSupply(_amountToCollect - _residue);
-        (uint256 _netSupplyAsset, uint256 _debtAsset,) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(true);
+        (uint256 _netSupply, uint256 _debt, uint256 _totalInSupply) =
+            BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);
         // simply convert _supplyToken back to _asset if no need to interact with AAVE
         // case [1]
-        if (_supplyRequired <= _supplyResidue || _netSupplyAsset == 0) {
+        if (_supplyRequired <= _supplyResidue || _netSupply == 0) {
             _result = new uint256[](3);
             _result[0] = 1;
             _result[1] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_supplyRequired);
+            _result[1] = _result[1] > _supplyResidue ? _supplyResidue : _result[1];
             _result[2] = _supplyResidue;
             return _result;
         }
 
         // withdraw supply from AAVE if no debt taken, i.e., no leverage
         // case [2]
-        if (_debtAsset == 0) {
+        if (_debt == 0) {
             _result = new uint256[](3);
             _result[0] = 2;
             _result[1] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_supplyRequired);
+            _result[1] = _result[1] > _netSupply ? _netSupply : _result[1];
             _result[2] = _supplyResidue;
             return _result;
         }
 
         // case [3] deleverage using flashloan
+        (uint256 _netSupplyAsset, uint256 _debtAsset,) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(true);
         uint256 _threshold = applyLeverageMargin(_netSupplyAsset);
         _result = new uint256[](5);
         _result[0] = 3;
         _result[1] = _netSupplyAsset;
-        // borrow amount for full deleverage
+        // borrow amount for full deleverage to repay entire debt
         _result[2] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_debtAsset);
         if (_amountToCollect < _threshold) {
+            // borrow amount for partial deleverage to repay a portion of debt
             _result[3] = getMaxLeverage(_amountToCollect);
-            uint256 _premium = _result[3] * aavePool.FLASHLOAN_PREMIUM_TOTAL() / Constants.TOTAL_BPS;
-            _result[4] = BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_result[3] + _premium + _amountToCollect);
+            _result[3] = _result[3] > _debtAsset ? _result[2] : _result[3];
+            _result[4] = _result[3] == _result[2]
+                ? _totalInSupply
+                : BaseAAVEStrategy(_strategy)._convertBorrowToSupply(
+                    _result[3] + (_result[3] * aavePool.FLASHLOAN_PREMIUM_TOTAL() / Constants.TOTAL_BPS) + _amountToCollect
+                );
         } else {
             _result[3] = _result[2];
-            (,, uint256 _totalInSupply) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);
             _result[4] = _totalInSupply;
         }
         return _result;
