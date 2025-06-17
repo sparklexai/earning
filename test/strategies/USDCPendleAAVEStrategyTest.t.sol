@@ -460,7 +460,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     }
 
     function _createPendleStrategy(bool _useMockRouter) internal returns (address, address) {
-        bytes memory _constructorArgs = abi.encode(usdc, address(stkVault), USDC_USD_Feed);
+        bytes memory _constructorArgs = abi.encode(usdc, address(stkVault));
         address _deployedStrategy = deployWithCreationCodeAndConstructorArgs(
             PENDLE_AAVE_STRATEGY_NAME, type(PendleAAVEStrategy).creationCode, _constructorArgs
         );

@@ -42,7 +42,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     event PTTokensPurchased(address indexed assetToken, address indexed ptToken, uint256 assetAmount, uint256 ptAmount);
     event PTTokensSwapped(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
 
-    constructor(address asset, address vault, address pendleRouter) BaseAAVEStrategy(ERC20(asset), vault) {}
+    constructor(address asset, address vault) BaseAAVEStrategy(ERC20(asset), vault) {}
 
     /**
      * @dev allow only called by strategist or owner or aavePool.
