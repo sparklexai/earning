@@ -95,7 +95,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
      * @dev use flashloan to fully deleverage the position in AAVE
      * @dev and swap in curve to return everything to vault
      */
-    function collectAll(bytes calldata _extraAction) external virtual onlyStrategistOrVault {
+    function collectAll(bytes calldata _extraAction) public virtual onlyStrategistOrVault {
         collect(totalAssets(), _extraAction);
     }
 
@@ -186,10 +186,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         internal
         virtual
     {
-        if (_borrowAmount == 0) {
-            return;
-        }
-
         _prepareSupplyFromAsset(_assetAmount, _extraAction);
         uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(
             _capAmountByBalance(_asset, _assetAmount, false), _borrowAmount

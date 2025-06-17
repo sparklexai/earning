@@ -688,6 +688,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         );
         (_ltv, _healthFactor) = _printAAVEPosition();
         assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+        assertEq(0, aaveHelper.getMaxRedeemableAmount());
         vm.startPrank(strategist);
         myStrategy.collect(_netSupply * _collectPortion / Constants.TOTAL_BPS, EMPTY_CALLDATA);
         vm.stopPrank();

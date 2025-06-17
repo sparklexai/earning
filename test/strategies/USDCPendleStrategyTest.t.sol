@@ -134,6 +134,14 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
         uint256 _borrowToSupply = _dummyPendleAaveStrategy.convertToPTSupply(_borrowAmount, false);
         assertTrue(_totalAssetToSupply > _borrowToSupply);
+
+        bytes memory EMPTY_CALLDATA;
+        vm.recordLogs();
+        vm.startPrank(_dummyPendleAaveStrategy.owner());
+        _dummyPendleAaveStrategy.invest(0, 0, EMPTY_CALLDATA);
+        vm.stopPrank();
+        Vm.Log[] memory logEntries = vm.getRecordedLogs();
+        assertEq(0, logEntries.length);
     }
 
     ///////////////////////////////
@@ -487,6 +495,27 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         vm.startPrank(strategyOwner);
         PendleStrategy(myStrategy).setAssetOracle(usdc, USDT_USD_FEED);
         vm.stopPrank();
+
+        vm.expectRevert(Constants.PT_NOT_FOUND.selector);
+        pendleHelper._checkValidityWithMarket(usdc, Constants.ZRO_ADDR, true);
+        vm.expectRevert(Constants.PT_NOT_MATURED.selector);
+        pendleHelper._checkValidityWithMarket(usdc, address(MARKET_ADDR1), false);
+
+        // forward to market expire
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        assertTrue(MARKET_ADDR1.isExpired());
+        vm.expectRevert(Constants.PT_ALREADY_MATURED.selector);
+        pendleHelper._checkValidityWithMarket(usdc, address(MARKET_ADDR1), true);
+
+        bytes memory EMPTY_CALLDATA;
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        pendleHelper._swapPTForRollOver(
+            address(PT_ADDR1), address(PT_ADDR2), magicPTAmount, EMPTY_CALLDATA, TARGET_SELECTOR_PENDLE, usdc
+        );
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        pendleHelper._swapAssetForPT(usdc, address(PT_ADDR2), magicUSDCAmount, EMPTY_CALLDATA, TARGET_SELECTOR_PENDLE);
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        pendleHelper._swapPTForAsset(usdc, address(PT_ADDR2), magicUSDCAmount, EMPTY_CALLDATA, TARGET_SELECTOR_PENDLE);
     }
 
     function test_Invalid_Swap_Calldata(uint256 _testVal) public {

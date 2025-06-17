@@ -41,13 +41,13 @@ contract DummyPendleAAVEStrategy is BaseAAVEStrategy {
     }
 
     function collectAll(bytes calldata _extraAction) public override {
-        _asset.transferFrom(address(this), _vault, totalAssets());
+        BaseAAVEStrategy.collectAll(_extraAction);
     }
 
     function totalAssets() public view override returns (uint256) {
         uint256 _supply2Asset = convertFromPTSupply(_supplyToken.balanceOf(address(this)), true);
         uint256 _borrow2Asset = convertFromBorrowToAsset(_borrowToken.balanceOf(address(this)));
-        return _asset.balanceOf(address(this)) + _supply2Asset + _borrow2Asset;
+        return BaseAAVEStrategy.totalAssets() + _supply2Asset + _borrow2Asset;
     }
 
     function convertFromPTSupply(uint256 _supplyPTAmount, bool _toAsset) public view returns (uint256) {
