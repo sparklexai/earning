@@ -190,6 +190,11 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.stopPrank();
         _checkBasicInvariants(address(stkVault));
 
+        vm.expectRevert(Constants.POSITION_STILL_IN_USE.selector);
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 0);
+        vm.stopPrank();
+
         (,, uint256 _totalInSupply) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(false);
         bytes memory _collectAllCALLDATA =
             _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _totalInSupply);
@@ -345,6 +350,11 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
             mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
         );
 
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setLeverageRatio(Constants.TOTAL_BPS + 1);
+        vm.stopPrank();
+
         vm.startPrank(aaveHelperOwner);
         aaveHelper.setLeverageRatio(0);
         vm.stopPrank();
@@ -380,6 +390,33 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
                 magicUSDCAmount, (ERC20(usdc).balanceOf(address(stkVault)) - _assetBalance), 20 * MIN_SHARE
             )
         );
+    }
+
+    function test_AAVEHelper_basics() public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        aaveHelper.supplyToAAVE(magicUSDCAmount);
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        aaveHelper.borrowFromAAVE(magicUSDCAmount);
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        aaveHelper.repayDebtToAAVE(magicUSDCAmount);
+
+        vm.startPrank(usdcWhale);
+        ERC20(usdc).transfer(myStrategy, magicUSDCAmount);
+        vm.stopPrank();
+
+        uint256[] memory _previewAssets = aaveHelper.previewCollect(magicUSDCAmount);
+        assertEq(2, _previewAssets.length);
+        assertEq(magicUSDCAmount, _previewAssets[1]);
+
+        vm.startPrank(PT1_Whale);
+        ERC20(address(PT_ADDR1)).transfer(myStrategy, magicPTAmount);
+        vm.stopPrank();
+        _previewAssets = aaveHelper.previewCollect(magicUSDCAmount + magicUSDCAmount / 2);
+        assertEq(3, _previewAssets.length);
+        assertEq(1, _previewAssets[0]);
+        assertEq(magicPTAmount, _previewAssets[2]);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
@@ -453,7 +490,12 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     }
 
     function _changeSettingToNewPT() internal {
-        vm.startPrank(aaveHelper.owner());
+        vm.expectRevert(Constants.WRONG_EMODE.selector);
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 0);
+        vm.stopPrank();
+
+        vm.startPrank(aaveHelperOwner);
         aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 10);
         vm.stopPrank();
 
