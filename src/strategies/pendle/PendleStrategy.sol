@@ -322,7 +322,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
         }
-        PendleHelper(_pendleHelper)._checkMarketValidityWithMarket(_ptToken, ptInfo.market, _beforeExpire);
+        PendleHelper(_pendleHelper)._checkValidityWithMarket(_ptToken, ptInfo.market, _beforeExpire);
     }
 
     ///////////////////////////////

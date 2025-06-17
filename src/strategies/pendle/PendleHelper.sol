@@ -51,7 +51,7 @@ contract PendleHelper {
     // earn with Pendle: Trading Functions
     ///////////////////////////////
 
-    function _checkMarketValidityWithMarket(address _ptAddress, address _ptMarket, bool _beforeExpire) external view {
+    function _checkValidityWithMarket(address _ptAddress, address _ptMarket, bool _beforeExpire) external view {
         if (_ptAddress == Constants.ZRO_ADDR || _ptMarket == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
         }

@@ -263,7 +263,7 @@ contract AAVEHelper is Ownable {
         (uint256 _netSupply, uint256 _debtInSupply,) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);
 
         uint256 _initSupply = _netSupply + _supplyToken.balanceOf(_strategy)
-            + BaseAAVEStrategy(_strategy)._convertAssetToSupply(_assetAmount);
+            + (_assetAmount > 0 ? BaseAAVEStrategy(_strategy)._convertAssetToSupply(_assetAmount) : 0);
 
         if (_initSupply == 0) {
             revert Constants.ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
@@ -332,7 +332,8 @@ contract AAVEHelper is Ownable {
         _result[2] = TokenSwapper(BaseAAVEStrategy(_strategy)._swapper()).applySlippageMargin(_debtAsset);
         if (_amountToCollect < _threshold) {
             _result[3] = getMaxLeverage(_amountToCollect);
-            _result[4] = BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_result[3] + _amountToCollect);
+            uint256 _premium = _result[3] * aavePool.FLASHLOAN_PREMIUM_TOTAL() / Constants.TOTAL_BPS;
+            _result[4] = BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_result[3] + _premium + _amountToCollect);
         } else {
             _result[3] = _result[2];
             (,, uint256 _totalInSupply) = BaseAAVEStrategy(_strategy).getNetSupplyAndDebt(false);

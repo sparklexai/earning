@@ -178,7 +178,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return EtherFiHelper(_etherfiHelper).getAllPendingValue(address(this));
     }
 
-    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory _swapData)
+    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory _extraAction)
         internal
         override
         returns (uint256)

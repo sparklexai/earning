@@ -266,6 +266,10 @@ contract TokenSwapper is Ownable {
         );
     }
 
+    /**
+     * @dev https://docs.pendle.finance/Developers/Oracles/HowToIntegratePtAndLpOracle#optional-convert-the-price-to-a-different-asset
+     * @dev convert from PT to SY then to other asset using on-chain oracle feed
+     */
     function getPTPriceInAsset(
         address _assetToken,
         address _assetOracle,

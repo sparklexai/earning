@@ -107,7 +107,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         returns (uint256)
     {
         address ptToken = address(AAVEHelper(_aaveHelper)._supplyToken());
-        PendleHelper(_pendleHelper)._checkMarketValidityWithMarket(ptToken, address(pendleMarket), true);
+        PendleHelper(_pendleHelper)._checkValidityWithMarket(ptToken, address(pendleMarket), true);
         _approveToken(_assetToken, _pendleHelper);
         uint256 ptReceived = PendleHelper(_pendleHelper)._swapAssetForPT(
             _assetToken, ptToken, assetAmount, _swapData, TokenSwapper(_swapper).TARGET_SELECTOR_BUY()
@@ -128,7 +128,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         returns (uint256)
     {
         address ptToken = address(AAVEHelper(_aaveHelper)._supplyToken());
-        PendleHelper(_pendleHelper)._checkMarketValidityWithMarket(ptToken, address(pendleMarket), !_redeemPT);
+        PendleHelper(_pendleHelper)._checkValidityWithMarket(ptToken, address(pendleMarket), !_redeemPT);
         _approveToken(ptToken, _pendleHelper);
         uint256 assetAmount = PendleHelper(_pendleHelper)._swapPTForAsset(
             _assetToken,
@@ -254,11 +254,13 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         returns (uint256)
     {
         uint256 amount = _capAllocationAmount(_assetAmount);
-        (bytes memory _prepareCalldata,,) = abi.decode(_swapData, (bytes, uint256, bytes));
-        if (amount > 0 && _prepareCalldata.length > 0) {
-            emit AllocateInvestment(msg.sender, amount);
+        if (amount > 0) {
             SafeERC20.safeTransferFrom(_asset, _vault, address(this), amount);
-            amount = buyPTWithAsset(address(_asset), _assetAmount, _prepareCalldata);
+            if (_swapData.length > 0) {
+                (bytes memory _prepareCalldata,,) = abi.decode(_swapData, (bytes, uint256, bytes));
+                amount = buyPTWithAsset(address(_asset), _assetAmount, _prepareCalldata);
+            }
+            emit AllocateInvestment(msg.sender, amount);
         }
         return amount;
     }
