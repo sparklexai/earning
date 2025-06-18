@@ -323,11 +323,11 @@ contract TokenSwapper is Ownable {
         return selector;
     }
 
-    function checkSupportedStablecoins(address _token) external view returns (bool) {
+    function checkSupportedStablecoins(address _token) external pure returns (bool) {
         return (_token == usdt || _token == usdc || _token == usds);
     }
 
-    function getAssetOracle(address _token) external view returns (address) {
+    function getAssetOracle(address _token) external pure returns (address) {
         if (_token == usdt) {
             return USDT_USD_Feed;
         } else if (_token == usdc) {

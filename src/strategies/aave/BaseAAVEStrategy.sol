@@ -169,7 +169,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
      * @dev strategist could use this method to withdraw supply token (collateral) in AAVE
      * @dev Please be careful this will increase the position LTV temporarily (higher liquidation risk)
      */
-    function redeem(uint256 _supplyAmount, bytes calldata _extraAction)
+    function redeem(uint256 _supplyAmount, bytes calldata /* _extraAction */ )
         external
         virtual
         onlyStrategistOrOwner
@@ -232,7 +232,11 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     /**
      * @dev convert asset token with given amount to supply token
      */
-    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory _swapData) internal virtual returns (uint256) {
+    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory /* _swapData */ )
+        internal
+        virtual
+        returns (uint256)
+    {
         return _assetAmount;
     }
 

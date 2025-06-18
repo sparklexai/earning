@@ -52,7 +52,7 @@ contract AAVEHelper is Ownable {
     );
     event SupplyToAAVE(address indexed _caller, uint256 _supplied, uint256 _mintedAToken, uint256 _health);
     event BorrowFromAAVE(address indexed _caller, uint256 _borrowed, uint256 _health);
-    event RepayDebtInAAVE(address indexed _caller, uint256 _repaidETH, uint256 _health);
+    event RepayDebtInAAVE(address indexed _caller, uint256 _repaid, uint256 _health);
     event AAVEHelperTokensChanged(
         address indexed supplyAToken, address indexed supplyToken, address indexed borrowToken, uint8 eMode
     );

@@ -245,7 +245,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         return _asset.balanceOf(address(this)) + _ptBalance + _netSupply;
     }
 
-    function assetsInCollection() external view override returns (uint256) {
+    function assetsInCollection() external pure override returns (uint256) {
         return 0;
     }
 

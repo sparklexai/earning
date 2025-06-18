@@ -91,14 +91,14 @@ contract PendleStrategy is BaseSparkleXStrategy {
         return _asset.balanceOf(address(this)) + getAllPTAmountsInAsset();
     }
 
-    function assetsInCollection() external view override returns (uint256 inCollectionAssets) {
+    function assetsInCollection() external pure override returns (uint256 inCollectionAssets) {
         return 0;
     }
 
     /**
      * @dev simply transfer _asset with given amount from vault to this strategy
      */
-    function allocate(uint256 amount, bytes calldata _extraAction) public override onlyStrategistOrVault {
+    function allocate(uint256 amount, bytes calldata /* _extraAction */ ) public override onlyStrategistOrVault {
         amount = _capAllocationAmount(amount);
         if (amount == 0) {
             return;
@@ -107,7 +107,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         emit AllocateInvestment(msg.sender, amount);
     }
 
-    function collect(uint256 amount, bytes calldata _extraAction) external override onlyStrategistOrVault {
+    function collect(uint256 amount, bytes calldata /* _extraAction */ ) external override onlyStrategistOrVault {
         if (amount == 0) {
             return;
         }
@@ -118,7 +118,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     /**
      * @dev ensure PT in all pendle market has been swapped back to asset
      */
-    function collectAll(bytes calldata _extraAction) external override onlyStrategistOrVault {
+    function collectAll(bytes calldata /* _extraAction */ ) external override onlyStrategistOrVault {
         if (getAllPTAmountsInAsset() > 0) {
             revert Constants.PT_STILL_IN_USE();
         }
@@ -313,7 +313,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @dev By default SY is 1:1 mapping of underlying yieldToken 
      * @dev https://docs.pendle.finance/Developers/Contracts/StandardizedYield#standard-sys
      */
-    function _syToUnderlyingRate(address _syToken) internal view returns (uint256) {
+    function _syToUnderlyingRate(address /* _syToken */ ) internal pure returns (uint256) {
         return Constants.ONE_ETHER;
     }
 

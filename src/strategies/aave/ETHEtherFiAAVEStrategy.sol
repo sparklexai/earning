@@ -105,7 +105,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
      * @dev withdraw as much as possible supply collateral (weETH) from AAVE
      * @dev and submit etherfi withdrawal request for later debt repayment to lower LTV
      */
-    function redeem(uint256 _supplyAmount, bytes calldata _extraAction)
+    function redeem(uint256 _supplyAmount, bytes calldata /* _extraAction */ )
         external
         override
         onlyStrategistOrOwner
@@ -179,7 +179,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return EtherFiHelper(_etherfiHelper).getAllPendingValue(address(this));
     }
 
-    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory _extraAction)
+    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory /* _extraAction */ )
         internal
         override
         returns (uint256)
