@@ -48,9 +48,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     event EtherFiHelperChanged(address indexed _old, address indexed _new);
     event SwapLossForDeleverage(address indexed _inToken, address indexed _outToken, uint256 _actual, uint256 _loss);
 
-    constructor(address vault) BaseAAVEStrategy(ERC20(wETH), vault, ERC20(address(weETH)), ERC20(wETH), aWeETH) {
-        _approveToken(address(_borrowToken), address(aavePool));
-    }
+    constructor(address vault) BaseAAVEStrategy(ERC20(wETH), vault) {}
 
     function setEtherFiHelper(address _newHelper) external onlyOwner {
         if (_newHelper == Constants.ZRO_ADDR) {
@@ -92,107 +90,37 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     /**
      * @dev complete the withdrawal request with etherfi and repay debt in AAVE
      */
-    function claimAndRepay(uint256[] calldata _reqIds, uint256 _repayAmount) external onlyStrategist {
+    function claimAndRepay(uint256[] calldata _reqIds, uint256 _repayAmount) external onlyStrategistOrOwner {
         uint256 _reqLen = _reqIds.length;
         if (_reqLen > 0) {
             for (uint256 i = 0; i < _reqLen; i++) {
                 EtherFiHelper(_etherfiHelper).claimWithdrawFromEtherFi(_reqIds[i]);
             }
         }
-        _repayAmount = _capAmountByBalance(_borrowToken, _repayAmount, false);
+        _repayAmount = _capAmountByBalance(AAVEHelper(_aaveHelper)._borrowToken(), _repayAmount, false);
         if (_repayAmount > 0) _repayDebtToAAVE(_repayAmount);
     }
 
     /**
      * @dev withdraw as much as possible supply collateral (weETH) from AAVE
-     * @dev and submit etherfi withdrawal request
+     * @dev and submit etherfi withdrawal request for later debt repayment to lower LTV
      */
-    function redeem(uint256 _supplyAmount) external override onlyStrategist returns (uint256) {
-        (uint256 _margin, uint256 _debtInBorrow) = AAVEHelper(_aaveHelper).getAvailableBorrowAmount(address(this));
-
+    function redeem(uint256 _supplyAmount, bytes calldata /* _extraAction */ )
+        external
+        override
+        onlyStrategistOrOwner
+        returns (uint256)
+    {
+        uint256 _margin = AAVEHelper(_aaveHelper).getMaxRedeemableAmount();
         if (_margin == 0) {
             return _margin;
-        } else {
-            _margin = _debtInBorrow > 0 ? _convertBorrowToSupply(_margin) : _supplyAmount;
         }
 
         _supplyAmount = _supplyAmount > _margin ? _margin : _supplyAmount;
         _supplyAmount = _withdrawCollateralFromAAVE(_supplyAmount);
-        uint256 _reqWithdraw = _capAmountByBalance(_supplyToken, _supplyAmount, false);
+        uint256 _reqWithdraw = _capAmountByBalance(AAVEHelper(_aaveHelper)._supplyToken(), _supplyAmount, false);
         _requestWithdrawFromEtherFi(_reqWithdraw, 0);
         return _reqWithdraw;
-    }
-
-    function _leveragePosition(uint256 _assetAmount, uint256 _borrowAmount) internal override {
-        if (_borrowAmount == 0) {
-            return;
-        }
-
-        _prepareSupplyFromAsset(_assetAmount);
-
-        (uint256 _netSupply, uint256 _debtInSupply,) = getNetSupplyAndDebt(false);
-        uint256 _initSupply = _supplyToken.balanceOf(address(this)) + _netSupply;
-        if (_initSupply == 0) {
-            revert Constants.ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
-        }
-
-        uint256 _safeLeveraged = AAVEHelper(_aaveHelper).getSafeLeveragedSupply(_initSupply);
-
-        if (_safeLeveraged <= _initSupply + _debtInSupply) {
-            revert Constants.FAIL_TO_SAFE_LEVERAGE();
-        }
-
-        uint256 _toBorrow = _convertSupplyToBorrow(_safeLeveraged - _initSupply - _debtInSupply);
-        _toBorrow = _toBorrow > _borrowAmount ? _borrowAmount : _toBorrow;
-
-        address[] memory assets = new address[](1);
-        uint256[] memory amounts = new uint256[](1);
-        uint256[] memory interestRateModes = new uint256[](1);
-
-        assets[0] = address(_borrowToken);
-        amounts[0] = _toBorrow;
-        interestRateModes[0] = 0;
-
-        aavePool.flashLoan(address(this), assets, amounts, interestRateModes, address(this), abi.encode(true, 0), 0);
-    }
-
-    /**
-     * @dev by default, this method will try to maximize the allowed leverage by looping in AAVE
-     * @dev i.e., borrowing as much as possible ETH and convert to weETH for AAVE supply
-     */
-    function allocate(uint256 amount) external override onlyStrategist {
-        if (amount == 0) {
-            return;
-        }
-
-        if (AAVEHelper(_aaveHelper).LEVERAGE_RATIO_BPS() > 0) {
-            _leveragePosition(amount, type(uint256).max);
-        } else {
-            _prepareSupplyFromAsset(amount);
-            _supplyToAAVE(_supplyToken.balanceOf(address(this)));
-        }
-        emit AllocateInvestment(msg.sender, amount);
-    }
-
-    /**
-     * @dev use flashloan to deleverage the position in AAVE
-     * @dev and swap in curve to return amount to vault
-     */
-    function collect(uint256 amount) public override onlyStrategistOrVault {
-        if (amount == 0) {
-            return;
-        }
-        _collectAsset(amount);
-        emit CollectInvestment(msg.sender, amount);
-        _returnAssetToVault(amount);
-    }
-
-    /**
-     * @dev use flashloan to fully deleverage the position in AAVE
-     * @dev and swap in curve to return everything to vault
-     */
-    function collectAll() external override onlyStrategistOrVault {
-        collect(totalAssets());
     }
 
     /**
@@ -206,53 +134,27 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     // convenient helper methods
     ///////////////////////////////
 
-    function _collectAsset(uint256 _expectedAsset) internal {
-        uint256 _residue = _asset.balanceOf(address(this));
-        if (_residue >= _expectedAsset) {
+    function _collectAsset(uint256 _expectedAsset, bytes calldata _extraAction) internal override {
+        uint256[] memory _previews = AAVEHelper(_aaveHelper).previewCollect(_expectedAsset);
+        if (_previews[0] == 0) {
             return;
         }
 
-        uint256 _supplyResidue = _supplyToken.balanceOf(address(this));
-        uint256 _supplyRequired = _convertAssetToSupply(_expectedAsset - _residue);
-        (uint256 _netSupplyAsset, uint256 _debtAsset,) = getNetSupplyAndDebt(true);
-
         // simply create withdraw request within ether.fi if no need to interact with AAVE
-        if (_supplyRequired <= _supplyResidue || _netSupplyAsset == 0) {
-            _requestWithdrawFromEtherFi(TokenSwapper(_swapper).applySlippageMargin(_supplyRequired), 0);
+        if (_previews[0] == 1) {
+            _requestWithdrawFromEtherFi(_previews[1], 0);
             return;
         }
 
         // withdraw supply from AAVE if no debt taken, i.e., no leverage
-        if (_debtAsset == 0) {
-            _withdrawCollateralFromAAVE(TokenSwapper(_swapper).applySlippageMargin(_supplyRequired));
-            _requestWithdrawFromEtherFi(_supplyToken.balanceOf(address(this)), 0);
+        if (_previews[0] == 2) {
+            _withdrawCollateralFromAAVE(_previews[1]);
+            _requestWithdrawFromEtherFi(AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)), 0);
             return;
         }
 
-        _deleverageByFlashloan(_netSupplyAsset, _debtAsset, _expectedAsset);
-    }
-
-    function _deleverageByFlashloan(uint256 _netSupplyAsset, uint256 _debtAsset, uint256 _expectedAsset) internal {
-        address[] memory assets = new address[](1);
-        uint256[] memory amounts = new uint256[](1);
-        uint256[] memory interestRateModes = new uint256[](1);
-
-        assets[0] = address(_borrowToken);
-        interestRateModes[0] = 0;
-
-        if (_expectedAsset > 0 && _expectedAsset < AAVEHelper(_aaveHelper).applyLeverageMargin(_netSupplyAsset)) {
-            // deleverage a portion if possible
-            amounts[0] = AAVEHelper(_aaveHelper).getMaxLeverage(_expectedAsset);
-            aavePool.flashLoan(
-                address(this), assets, amounts, interestRateModes, address(this), abi.encode(false, _expectedAsset), 0
-            );
-        } else {
-            // deleverage everything
-            amounts[0] = TokenSwapper(_swapper).applySlippageMargin(_debtAsset);
-            aavePool.flashLoan(
-                address(this), assets, amounts, interestRateModes, address(this), abi.encode(false, 0), 0
-            );
-        }
+        uint256 _expected = _previews[3] == _previews[2] ? 0 : _expectedAsset;
+        _deleverageByFlashloan(_previews[1], _previews[2], _expected, _previews[3], _extraAction);
     }
 
     ///////////////////////////////
@@ -277,7 +179,11 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return EtherFiHelper(_etherfiHelper).getAllPendingValue(address(this));
     }
 
-    function _prepareSupplyFromAsset(uint256 _assetAmount) internal override returns (uint256) {
+    function _prepareSupplyFromAsset(uint256 _assetAmount, bytes memory /* _extraAction */ )
+        internal
+        override
+        returns (uint256)
+    {
         uint256 amount = _capAllocationAmount(_assetAmount);
         if (amount > 0) {
             emit AllocateInvestment(msg.sender, amount);
@@ -287,34 +193,24 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         return amount;
     }
 
-    function _convertAssetToSupply(uint256 _assetAmount) internal view override returns (uint256) {
+    function _convertAssetToSupply(uint256 _assetAmount) public view override returns (uint256) {
         return weETH.getWeETHByeETH(_assetAmount);
     }
 
-    function _convertSupplyToAsset(uint256 _supplyAmount) internal view override returns (uint256) {
+    function _convertSupplyToAsset(uint256 _supplyAmount) public view override returns (uint256) {
         return weETH.getEETHByWeETH(_supplyAmount);
-    }
-
-    function _convertBorrowToSupply(uint256 _borrowAmount) internal view override returns (uint256) {
-        return _convertAssetToSupply(_borrowAmount);
-    }
-
-    function _convertSupplyToBorrow(uint256 _supplyAmount) internal view override returns (uint256) {
-        return _convertSupplyToAsset(_supplyAmount);
     }
 
     ///////////////////////////////
     // handle flashloan callback from AAVE
     // https://aave.com/docs/developers/flash-loans
     ///////////////////////////////
-    function executeOperation(
-        address[] calldata assets,
-        uint256[] calldata amounts,
-        uint256[] calldata premiums,
-        address initiator,
-        bytes calldata params
-    ) external returns (bool) {
-        uint256 amount = amounts[0];
+    function executeOperation(address asset, uint256 amount, uint256 premium, address initiator, bytes calldata params)
+        external
+        returns (bool)
+    {
+        ERC20 _supplyToken = AAVEHelper(_aaveHelper)._supplyToken();
+        ERC20 _borrowToken = AAVEHelper(_aaveHelper)._borrowToken();
 
         if (msg.sender != address(aavePool)) {
             revert Constants.WRONG_AAVE_FLASHLOAN_CALLER();
@@ -322,25 +218,25 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         if (initiator != address(this)) {
             revert Constants.WRONG_AAVE_FLASHLOAN_INITIATOR();
         }
-        if (assets[0] != address(_borrowToken)) {
+        if (asset != address(_borrowToken)) {
             revert Constants.WRONG_AAVE_FLASHLOAN_ASSET();
         }
-        if (amount <= premiums[0]) {
+        if (amount <= premium) {
             revert Constants.WRONG_AAVE_FLASHLOAN_PREMIUM();
         }
         if (_borrowToken.balanceOf(address(this)) < amount) {
             revert Constants.WRONG_AAVE_FLASHLOAN_AMOUNT();
         }
 
-        (bool _lev, uint256 _expected) = abi.decode(params, (bool, uint256));
-        uint256 _toRepay = amount + premiums[0];
+        (bool _lev, uint256 _expected,) = abi.decode(params, (bool, uint256, bytes));
+        uint256 _toRepay = amount + premium;
 
         if (_lev) {
-            // Leverage: use flashloan to deposit borrowed wETH into ether.fi and then supply weETH to AAVE
-            uint256 _supplyAmount =
-                _depositToEtherFi(_capAmountByBalance(_asset, amount, false)) + _supplyToken.balanceOf(address(this));
+            // Leverage: use flashloan to deposit borrowed wETH into ether.fi and then supply weETH to AAVE                ;
 
-            _supplyToAAVE(_supplyAmount);
+            _supplyToAAVE(
+                _depositToEtherFi(_capAmountByBalance(_asset, amount, false)) + _supplyToken.balanceOf(address(this))
+            );
             _borrowFromAAVE(_toRepay);
 
             uint256 _borrowResidue = _borrowToken.balanceOf(address(this));

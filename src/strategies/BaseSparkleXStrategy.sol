@@ -14,10 +14,6 @@ interface ISparkleXVault {
     function getAllocationAvailableForStrategy(address _strategyAddr) external view returns (uint256);
 }
 
-interface ITokenSwapper {
-    function applySlippageMargin(uint256 _theory) external view returns (uint256);
-}
-
 abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     using Math for uint256;
     using Address for address;
@@ -36,7 +32,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     ERC20 immutable _asset;
     address immutable _vault;
     address _strategist;
-    address _swapper;
+    address public _swapper;
 
     ///////////////////////////////
     // events
@@ -136,9 +132,9 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         return _amount > _maxAllocation ? _maxAllocation : _amount;
     }
 
-    function _capAmountByBalance(ERC20 _token, uint256 _amount, bool _applyMargin) internal view returns (uint256) {
+    function _capAmountByBalance(ERC20 _token, uint256 _amount, bool _applyMargin) public view returns (uint256) {
         uint256 _expected = (_applyMargin && _swapper != Constants.ZRO_ADDR)
-            ? ITokenSwapper(_swapper).applySlippageMargin(_amount)
+            ? TokenSwapper(_swapper).applySlippageMargin(_amount)
             : _amount;
         uint256 _balance = _token.balanceOf(address(this));
         return _balance > _expected ? _expected : _balance;

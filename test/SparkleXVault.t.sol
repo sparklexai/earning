@@ -105,10 +105,11 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         // ensure that user pay withdraw fee during request claim
+        bytes memory EMPTY_CALLDATA;
         uint256 _availableForStrategy = stkVault.getAllocationAvailableForStrategy(address(myStrategy1));
         assertEq(_availableForStrategy, stkVault.totalAssets());
         vm.startPrank(stkVOwner);
-        myStrategy1.allocate(_availableForStrategy);
+        myStrategy1.allocate(_availableForStrategy, EMPTY_CALLDATA);
         vm.stopPrank();
         uint256 _residueShare = 123456789;
         TestUtils._makeRedemptionRequest(_user, _share - _residueShare, address(stkVault));
@@ -120,7 +121,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         vm.startPrank(stkVOwner);
-        myStrategy1.collectAll();
+        myStrategy1.collectAll(EMPTY_CALLDATA);
         vm.stopPrank();
         vm.startPrank(_user);
         stkVault.claimRedemptionRequest();
@@ -296,6 +297,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         _fundFirstDepositGenerously(address(stkVault));
+        bytes memory EMPTY_CALLDATA;
 
         // ensure that user can't claim withdraw request if not enough asset in vault
         address _user = TestUtils._getSugarUser();
@@ -303,7 +305,7 @@ contract SparkleXVaultTest is TestUtils {
             TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
         _testVal = _assetVal;
         vm.startPrank(stkVOwner);
-        myStrategy.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy)));
+        myStrategy.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy)), EMPTY_CALLDATA);
         vm.stopPrank();
 
         // not enough asset to make the redeem
@@ -333,19 +335,19 @@ contract SparkleXVaultTest is TestUtils {
 
         // remove the second strategy
         vm.startPrank(stkVOwner);
-        stkVault.removeStrategy(address(myStrategy2));
+        stkVault.removeStrategy(address(myStrategy2), EMPTY_CALLDATA);
         vm.stopPrank();
         assertEq(0, stkVault.strategyAllocations(address(myStrategy2)));
 
         // can't remove the second strategy again
         vm.expectRevert(Constants.WRONG_STRATEGY_TO_REMOVE.selector);
         vm.startPrank(stkVOwner);
-        stkVault.removeStrategy(address(myStrategy2));
+        stkVault.removeStrategy(address(myStrategy2), EMPTY_CALLDATA);
         vm.stopPrank();
 
         // remove the first strategy
         vm.startPrank(stkVOwner);
-        stkVault.removeStrategy(address(myStrategy));
+        stkVault.removeStrategy(address(myStrategy), EMPTY_CALLDATA);
         vm.stopPrank();
         assertEq(0, stkVault.strategyAllocations(address(myStrategy)));
         assertEq(0, stkVault.getAllocationAvailableForStrategy(address(myStrategy)));
@@ -400,12 +402,13 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(address(myStrategy), stkVault.allStrategies(0));
 
         _fundFirstDepositGenerously(address(stkVault));
+        bytes memory EMPTY_CALLDATA;
 
         address _user = TestUtils._getSugarUser();
         TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
         uint256 _assetAllocated1 = stkVault.getAllocationAvailableForStrategy(address(myStrategy));
         vm.startPrank(stkVOwner);
-        myStrategy.allocate(_assetAllocated1);
+        myStrategy.allocate(_assetAllocated1, EMPTY_CALLDATA);
         vm.stopPrank();
         assertEq(_assetAllocated1, myStrategy.totalAssets());
 
@@ -422,12 +425,12 @@ contract SparkleXVaultTest is TestUtils {
         address _user2 = TestUtils._getSugarUser();
         TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal, 2 ether, 100 ether);
         vm.startPrank(stkVOwner);
-        myStrategy2.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy2)));
+        myStrategy2.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy2)), EMPTY_CALLDATA);
         vm.stopPrank();
 
         // remove the first strategy
         vm.startPrank(stkVOwner);
-        stkVault.removeStrategy(address(myStrategy));
+        stkVault.removeStrategy(address(myStrategy), EMPTY_CALLDATA);
         vm.stopPrank();
         assertEq(0, myStrategy.totalAssets());
         assertEq(Constants.ZRO_ADDR, stkVault.allStrategies(0));
@@ -448,6 +451,7 @@ contract SparkleXVaultTest is TestUtils {
             vm.stopPrank();
         }
         assertEq(MAX_STRATEGIES_NUM, stkVault.activeStrategies());
+        bytes memory EMPTY_CALLDATA;
 
         address _replacedStrategy = stkVault.allStrategies(MAX_STRATEGIES_NUM / 2);
 
@@ -462,7 +466,7 @@ contract SparkleXVaultTest is TestUtils {
         // make the replacement
         uint256 _oldAlloc = 100;
         vm.startPrank(stkVOwner);
-        stkVault.removeStrategy(address(_replacedStrategy));
+        stkVault.removeStrategy(address(_replacedStrategy), EMPTY_CALLDATA);
         stkVault.addStrategy(address(anewStrategy), _oldAlloc);
         vm.stopPrank();
         assertEq(address(anewStrategy), stkVault.allStrategies(MAX_STRATEGIES_NUM / 2));

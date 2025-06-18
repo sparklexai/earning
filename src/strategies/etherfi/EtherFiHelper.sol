@@ -216,7 +216,7 @@ contract EtherFiHelper is IERC721Receiver {
         }
     }
 
-    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data)
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata /* data */ )
         external
         override
         returns (bytes4)

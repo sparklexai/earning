@@ -23,7 +23,7 @@ contract DeployPeripheralScript is Script {
 
         uint256 _minDelaySeconds = 600;
         TimelockController timelocker = new TimelockController(_minDelaySeconds, _proposers, _executors, address(0));
-
+        require(timelocker.getMinDelay() == _minDelaySeconds, "!min delay seconds");
         vm.stopBroadcast();
     }
 }
