@@ -44,6 +44,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     // mainnet pendle PT pools: active
     ///////////////////////////////
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
+    IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
     address public constant sUSDe = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
     address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
 
@@ -461,6 +462,81 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.startPrank(address(aavePool));
         PendleAAVEStrategy(myStrategy).executeOperation(usdc, type(uint256).max, 0, address(myStrategy), EMPTY_CALLDATA);
         vm.stopPrank();
+    }
+
+    function test_PriceDip_Pendle(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+        uint256 _liqThreshold = 9200;
+
+        TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+        bytes memory EMPTY_CALLDATA;
+
+        uint256 _originalPrice = aaveOracle.getAssetPrice(address(PT_ADDR1));
+
+        uint256 _initDebt = magicUSDCAmountLeveraged; //aaveHelper.previewLeverageForInvest(magicUSDCAmount, _initDebt);
+        bytes memory _prepareCALLDATA =
+            _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, magicUSDCAmount);
+        bytes memory _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, _initDebt);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).invest(
+            magicUSDCAmount, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
+        );
+        vm.stopPrank();
+
+        (uint256 _ltv, uint256 _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) < aaveHelper.getMaxLTV());
+
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(PT_ADDR1)),
+            abi.encode(_originalPrice * 9700 / Constants.TOTAL_BPS)
+        );
+
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+
+        uint256 _toCollect = magicUSDCAmount / 2;
+        uint256[] memory _previewCollects = aaveHelper.previewCollect(_toCollect);
+        assertEq(5, _previewCollects.length);
+        bytes memory _collectCALLDATA =
+            _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _previewCollects[4]);
+        _prepareSwapForMockRouter(
+            mockRouter,
+            address(PT_ADDR1),
+            usdc,
+            usdcWhale,
+            (Constants.ONE_ETHER * Constants.ONE_ETHER / USDC_TO_PT1_DUMMY_PRICE)
+        );
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).collect(_toCollect, _collectCALLDATA);
+        vm.stopPrank();
+
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) < aaveHelper.getMaxLTV());
+
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(PT_ADDR1)),
+            abi.encode(_originalPrice * 9400 / Constants.TOTAL_BPS)
+        );
+
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+
+        _previewCollects = aaveHelper.previewCollect(PendleAAVEStrategy(myStrategy).totalAssets());
+        assertEq(5, _previewCollects.length);
+        _collectCALLDATA = _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _previewCollects[4]);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).collectAll(_collectCALLDATA);
+        vm.stopPrank();
+
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertEq(0, _ltv);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
