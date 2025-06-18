@@ -85,6 +85,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.setAAVEHelper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(_strategyOwner);
+        myStrategy.setEtherFiHelper(Constants.ZRO_ADDR);
+        vm.stopPrank();
+
         vm.startPrank(_strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setEtherFiHelper(address(etherfiHelper));
@@ -504,6 +509,37 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         }
         assertEq(_debtInAsset, 0);
         assertEq(myStrategy.assetsInCollection(), 0);
+
+        uint256[] memory EMPTY_IDS;
+        vm.recordLogs();
+        vm.startPrank(strategist);
+        myStrategy.claimAndRepay(EMPTY_IDS, 0);
+        vm.stopPrank();
+        Vm.Log[] memory logEntries = vm.getRecordedLogs();
+        assertEq(0, logEntries.length);
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_CALLER.selector);
+        myStrategy.executeOperation(wETH, 0, 1, strategist, EMPTY_CALLDATA);
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_INITIATOR.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, 0, 1, strategist, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_ASSET.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(weETH, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_PREMIUM.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_AMOUNT.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, type(uint256).max, 0, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
     }
 
     function test_Max_Redeem(uint256 _testVal) public {

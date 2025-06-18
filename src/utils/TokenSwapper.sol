@@ -53,11 +53,17 @@ contract TokenSwapper is Ownable {
     address public constant usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address public constant usds = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
     address public constant usde = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
+    address public constant USR = 0x66a1E37c9b0eAddca17d3662D6c05F4DECf3e110;
+    address public constant USDf = 0xFa2B947eEc368f42195f24F36d2aF29f7c24CeC2;
+    address public constant GHO = 0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f;
     address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
     address public constant USDT_USD_Feed = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
     address public constant USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address public constant USDS_USD_Feed = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
-    address public constant USDe_FEED = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961;
+    address public constant USDe_USD_FEED = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961;
+    address public constant USR_USD_FEED = 0x34ad75691e25A8E9b681AAA85dbeB7ef6561B42c;
+    address public constant USDf_USD_FEED = 0xb177857a1799aA5F7fEb5799Fdf12CbE8fdF78B1;
+    address public constant GHO_USD_FEED = 0x3f12643D3f6f874d39C2a4c9f2Cd6f2DbAC877FC;
 
     ///////////////////////////////
     // events
@@ -323,10 +329,6 @@ contract TokenSwapper is Ownable {
         return selector;
     }
 
-    function checkSupportedStablecoins(address _token) external pure returns (bool) {
-        return (_token == usdt || _token == usdc || _token == usds);
-    }
-
     function getAssetOracle(address _token) external pure returns (address) {
         if (_token == usdt) {
             return USDT_USD_Feed;
@@ -337,7 +339,13 @@ contract TokenSwapper is Ownable {
         } else if (_token == sUSDe) {
             return sUSDe_FEED;
         } else if (_token == usde) {
-            return USDe_FEED;
+            return USDe_USD_FEED;
+        } else if (_token == USR) {
+            return USR_USD_FEED;
+        } else if (_token == USDf) {
+            return USDf_USD_FEED;
+        } else if (_token == GHO) {
+            return GHO_USD_FEED;
         } else {
             return Constants.ZRO_ADDR;
         }

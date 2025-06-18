@@ -27,6 +27,7 @@ import {BasePendleStrategyTest} from "./BasePendleStrategyTest.t.sol";
 contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     AAVEHelper public aaveHelper;
     address public aaveHelperOwner;
+    address public swapperOwner;
     uint256 public magicUSDCAmountLeveraged = 9000000000; //9000e6
     uint256 public magicUSDCAmountCollect = 365000000; //365e6
     uint256 public magicPTAmountRedeemed = 200000000000000000000; //200e18
@@ -71,6 +72,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
 
         swapper = new TokenSwapper();
         mockRouter = new DummyDEXRouter();
+        swapperOwner = swapper.owner();
     }
 
     function test_GetMaxLTV() public {
@@ -146,7 +148,13 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
 
         bytes memory _collectCALLDATA = _getStormOutCalldataFromSDK(address(PT_ADDR1), magicPTAmountCollected);
         uint256 _vaultBalance = ERC20(usdc).balanceOf(address(stkVault));
-        vm.startPrank(swapper.owner());
+
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(swapperOwner);
+        swapper.setSlippage(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        vm.startPrank(swapperOwner);
         swapper.setSlippage(9500);
         vm.stopPrank();
         vm.startPrank(strategist);
@@ -248,6 +256,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         TestUtils._makeVaultDepositWithMockRouter(
             mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
         );
+        bytes memory EMPTY_CALLDATA;
 
         uint256 _initDebt = magicUSDCAmountLeveraged; //aaveHelper.previewLeverageForInvest(magicUSDCAmount, _initDebt);
         bytes memory _prepareCALLDATA =
@@ -258,6 +267,11 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         PendleAAVEStrategy(myStrategy).invest(
             magicUSDCAmount, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
         );
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.TOO_MUCH_SUPPLY_TO_REDEEM.selector);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).redeem(type(uint256).max, EMPTY_CALLDATA);
         vm.stopPrank();
 
         _prepareSwapForMockRouter(
@@ -287,7 +301,6 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
 
         // redeem anything left from AAVE
         (uint256 _netSupply,,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(false);
-        bytes memory EMPTY_CALLDATA;
         vm.startPrank(strategist);
         PendleAAVEStrategy(myStrategy).redeem(_netSupply, EMPTY_CALLDATA);
         vm.stopPrank();
@@ -424,6 +437,30 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         assertEq(3, _previewAssets.length);
         assertEq(1, _previewAssets[0]);
         assertEq(magicPTAmount, _previewAssets[2]);
+
+        bytes memory EMPTY_CALLDATA;
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_CALLER.selector);
+        PendleAAVEStrategy(myStrategy).executeOperation(usdc, 0, 1, strategist, EMPTY_CALLDATA);
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_INITIATOR.selector);
+        vm.startPrank(address(aavePool));
+        PendleAAVEStrategy(myStrategy).executeOperation(usdc, 0, 1, strategist, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_ASSET.selector);
+        vm.startPrank(address(aavePool));
+        PendleAAVEStrategy(myStrategy).executeOperation(address(PT_ADDR1), 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_PREMIUM.selector);
+        vm.startPrank(address(aavePool));
+        PendleAAVEStrategy(myStrategy).executeOperation(usdc, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_AMOUNT.selector);
+        vm.startPrank(address(aavePool));
+        PendleAAVEStrategy(myStrategy).executeOperation(usdc, type(uint256).max, 0, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
@@ -507,6 +544,11 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.stopPrank();
 
         address _strategyOwner = PendleAAVEStrategy(myStrategy).owner();
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(_strategyOwner);
+        PendleAAVEStrategy(myStrategy).setPendleMarket(Constants.ZRO_ADDR);
+        vm.stopPrank();
+
         vm.expectRevert(Constants.DIFFERENT_TOKEN_IN_AAVE_HELPER.selector);
         vm.startPrank(_strategyOwner);
         PendleAAVEStrategy(myStrategy).setPendleMarket(address(MARKET_ADDR2));
