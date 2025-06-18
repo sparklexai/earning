@@ -11,6 +11,8 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IOracleAggregatorV3} from "../../interfaces/chainlink/IOracleAggregatorV3.sol";
 import {IPMarketV3} from "@pendle/contracts/interfaces/IPMarketV3.sol";
+import {ISwapRouter} from "../../interfaces/uniswap/ISwapRouter.sol";
+import {IUniswapV3PoolImmutables} from "../../interfaces/uniswap/IUniswapV3PoolImmutables.sol";
 
 interface PendleOracleInterface {
     function getPtToSyRate(address market, uint32 duration) external view returns (uint256);
@@ -38,6 +40,7 @@ contract TokenSwapper is Ownable {
     // integrations - Ethereum mainnet
     ///////////////////////////////
     ICurveRouter curveRouter = ICurveRouter(0x16C6521Dff6baB339122a0FE25a9116693265353);
+    ISwapRouter uniswapV3Router = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
     address pendleRouteV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
     PendleOracleInterface pendleOracle = PendleOracleInterface(0x9a9Fa8338dd5E5B2188006f1Cd2Ef26d921650C2);
     bytes4 public constant TARGET_SELECTOR_BUY = hex"c81f847a"; //swapExactTokenForPt()
@@ -83,6 +86,32 @@ contract TokenSwapper is Ownable {
             revert Constants.INVALID_BPS_TO_SET();
         }
         SWAP_SLIPPAGE_BPS = _slippage;
+    }
+
+    ///////////////////////////////
+    // Uniswap V3 related:
+    // https://docs.uniswap.org/contracts/v3/guides/swaps/single-swaps
+    ///////////////////////////////
+    function swapExactInWithUniswap(
+        address inToken,
+        address outToken,
+        address singlePool,
+        uint256 _inAmount,
+        uint256 _minOut
+    ) external returns (uint256) {
+        ISwapRouter.ExactInputSingleParams memory _inputSingle = ISwapRouter.ExactInputSingleParams({
+            tokenIn: inToken,
+            tokenOut: outToken,
+            fee: IUniswapV3PoolImmutables(singlePool).fee(),
+            recipient: msg.sender,
+            deadline: (block.timestamp + PENDLE_ORACLE_TWAP),
+            amountIn: _inAmount,
+            amountOutMinimum: _minOut,
+            sqrtPriceLimitX96: 0
+        });
+        SafeERC20.safeTransferFrom(ERC20(inToken), msg.sender, address(this), _inAmount);
+        _approveTokenToDex(inToken, address(uniswapV3Router));
+        return uniswapV3Router.exactInputSingle(_inputSingle);
     }
 
     ///////////////////////////////

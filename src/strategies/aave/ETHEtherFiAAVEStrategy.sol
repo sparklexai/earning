@@ -36,11 +36,14 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     ERC20 aWeETH = ERC20(0xBdfa7b7893081B35Fb54027489e2Bc7A38275129);
     address constant weETHPool = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
+    address constant weETHUniPool = 0x202A6012894Ae5c288eA824cbc8A9bfb26A49b93;
+    address constant weETH_ETH_FEED = 0x5c9C449BbC9a6075A2c061dF312a35fd1E05fF22;
 
     ///////////////////////////////
     // member storage
     ///////////////////////////////
     address payable _etherfiHelper;
+    uint256 public _swapCurveRatio = 5000;
 
     ///////////////////////////////
     // events
@@ -58,6 +61,13 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         _etherfiHelper = payable(_newHelper);
         _approveToken(wETH, _etherfiHelper);
         _approveToken(address(weETH), _etherfiHelper);
+    }
+
+    function setSwapCurveRatio(uint256 _ratio) external onlyOwner {
+        if (_ratio > Constants.TOTAL_BPS) {
+            revert Constants.INVALID_BPS_TO_SET();
+        }
+        _swapCurveRatio = _ratio;
     }
 
     ///////////////////////////////
@@ -265,17 +275,24 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
             _approveToken(address(_supplyToken), _swapper);
 
             // NOTE!!! this flow might incur some slippage loss, please use at careful discretion
-            uint256 _expectedIn = TokenSwapper(_swapper).queryXWithYInCurve(
-                address(_supplyToken), address(_borrowToken), weETHPool, _toRepay
-            );
-            uint256 _cappedIn = _capAmountByBalance(_supplyToken, _expectedIn, true);
-            uint256 _actualOut = TokenSwapper(_swapper).swapInCurveTwoTokenPool(
-                address(_supplyToken), address(_borrowToken), weETHPool, _cappedIn, _toRepay
-            );
+            uint256 _fromCurve = _toRepay * _swapCurveRatio / Constants.TOTAL_BPS;
+            uint256 _fromUniswap = _toRepay - _fromCurve;
+            uint256 _cappedIn1;
+            uint256 _actualOut1;
+            uint256 _cappedIn2;
+            uint256 _actualOut2;
+            if (_fromCurve > 0) {
+                (_cappedIn1, _actualOut1) = _swapUsingCurve(_supplyToken, _borrowToken, _fromCurve);
+            }
+            if (_fromUniswap > 0) {
+                (_cappedIn2, _actualOut2) = _swapUsingUniswap(_supplyToken, _borrowToken, _fromUniswap);
+            }
+            uint256 _actualOut = _actualOut1 + _actualOut2;
 
-            uint256 _bestInTheory = _convertSupplyToAsset(_cappedIn);
+            uint256 _bestInTheory = _convertSupplyToAsset(_cappedIn1 + _cappedIn2);
             uint256 _swapLoss = (_bestInTheory > _actualOut ? _bestInTheory - _actualOut : 0);
             emit SwapLossForDeleverage(address(_supplyToken), address(_borrowToken), _actualOut, _swapLoss);
+
             uint256 _supplyResidueValue = _supplyToken.balanceOf(address(this));
             if (_supplyResidueValue > 0) {
                 _requestWithdrawFromEtherFi(_supplyResidueValue, _swapLoss);
@@ -287,5 +304,34 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         }
 
         return true;
+    }
+
+    function _swapUsingCurve(ERC20 _supplyToken, ERC20 _borrowToken, uint256 _expectOutAmount)
+        internal
+        returns (uint256, uint256)
+    {
+        uint256 _expectedIn = TokenSwapper(_swapper).queryXWithYInCurve(
+            address(_supplyToken), address(_borrowToken), weETHPool, _expectOutAmount
+        );
+        uint256 _cappedIn = _capAmountByBalance(_supplyToken, _expectedIn, true);
+        uint256 _actualOut = TokenSwapper(_swapper).swapInCurveTwoTokenPool(
+            address(_supplyToken), address(_borrowToken), weETHPool, _cappedIn, _expectOutAmount
+        );
+        return (_cappedIn, _actualOut);
+    }
+
+    function _swapUsingUniswap(ERC20 _supplyToken, ERC20 _borrowToken, uint256 _expectOutAmount)
+        internal
+        returns (uint256, uint256)
+    {
+        (int256 _weETHToETHPrice,, uint8 _priceDecimal) = TokenSwapper(_swapper).getPriceFromChainLink(weETH_ETH_FEED);
+        uint256 _expectedIn =
+            _expectOutAmount * Constants.convertDecimalToUnit(_priceDecimal) / uint256(_weETHToETHPrice);
+        uint256 _cappedIn =
+            _capAmountByBalance(_supplyToken, TokenSwapper(_swapper).applySlippageMargin(_expectedIn), true);
+        uint256 _actualOut = TokenSwapper(_swapper).swapExactInWithUniswap(
+            address(_supplyToken), address(_borrowToken), weETHUniPool, _cappedIn, _expectOutAmount
+        );
+        return (_cappedIn, _actualOut);
     }
 }
