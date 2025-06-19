@@ -57,6 +57,7 @@ contract DeployScript is Script {
         // Contract linking
         stkVault.addStrategy(address(myStrategy), 100);
         stkVault.setEarnRatio(10000);
+        stkVault.setRedemptionClaimer(_strategist);
 
         myStrategy.setSwapper(address(tokenSwapper));
         myStrategy.setEtherFiHelper(address(etherFiHelper));
@@ -84,6 +85,7 @@ contract DeployScript is Script {
         stkVault.addStrategy(address(myStrategy), 100);
         stkVault.addStrategy(address(myStrategy2), 100);
         stkVault.setEarnRatio(10000);
+        stkVault.setRedemptionClaimer(_strategist);
 
         myStrategy.setSwapper(address(_tokenSwapper));
         myStrategy.setPendleHelper(address(pendleHelper));

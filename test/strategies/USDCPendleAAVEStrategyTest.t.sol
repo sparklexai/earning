@@ -63,6 +63,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     address public constant PT_ATOKEN_ADDR3 = 0x312ffC57778CEfa11989733e6E08143E7E229c1c;
 
     function setUp() public {
+        _createForkMainnet(22727695);
         stkVault = new SparkleXVault(ERC20(usdc), "SparkleXVault", "SPXV");
         stkVOwner = stkVault.owner();
         _changeWithdrawFee(stkVOwner, address(stkVault), 0);
@@ -83,13 +84,6 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     }
 
     function test_Basic_Flow_PendleAAVE(uint256 _testVal) public {
-        string memory MAINNET_RPC = vm.envString("TESTNET_RPC");
-        uint256 forkId = vm.createFork(MAINNET_RPC, 22727695);
-        vm.selectFork(forkId);
-        console.log("_block:%d,_rpc:%s", block.number, MAINNET_RPC);
-
-        setUp();
-
         (myStrategy, strategist) = _createPendleStrategy(false);
         _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
         address _user = TestUtils._getSugarUser();

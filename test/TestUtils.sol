@@ -274,4 +274,11 @@ contract TestUtils is Test {
         _mockRouter.setWhales(_outToken, _outTokenWhale);
         _mockRouter.setPrices(_inToken, _outToken, _priceInE18);
     }
+
+    function _createForkMainnet(uint256 _blockHight) internal {
+        string memory MAINNET_RPC = vm.envString("TESTNET_RPC");
+        uint256 forkId = vm.createFork(MAINNET_RPC, _blockHight);
+        vm.selectFork(forkId);
+        assertEq(_blockHight, block.number);
+    }
 }

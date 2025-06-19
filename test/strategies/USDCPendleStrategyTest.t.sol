@@ -33,6 +33,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
     event AssetOracleAdded(address indexed assetToken, address indexed oracle);
 
     function setUp() public {
+        _createForkMainnet(22727695);
         stkVault = new SparkleXVault(ERC20(usdc), "SparkleXVault", "SPXV");
         stkVOwner = stkVault.owner();
 
