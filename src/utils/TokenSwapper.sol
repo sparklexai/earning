@@ -33,8 +33,14 @@ contract TokenSwapper is Ownable {
     ///////////////////////////////
     // member storage
     ///////////////////////////////
+
+    /**
+     * @dev smaller SWAP_SLIPPAGE_BPS setting means more relax on the minimum expect output
+     * @dev also possibly more input amount (via applySlippageMargin()) to complete the swap
+     */
     uint256 public SWAP_SLIPPAGE_BPS = 9920;
     uint32 public constant PENDLE_ORACLE_TWAP = 900;
+    mapping(address => address) public _tokenOracles;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -72,8 +78,20 @@ contract TokenSwapper is Ownable {
     // events
     ///////////////////////////////
     event SwapInCurve(address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out);
+    event SwapInUniswap(
+        address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out
+    );
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) {
+        _tokenOracles[usdt] = USDT_USD_Feed;
+        _tokenOracles[usdc] = USDC_USD_Feed;
+        _tokenOracles[usds] = USDS_USD_Feed;
+        _tokenOracles[sUSDe] = sUSDe_FEED;
+        _tokenOracles[usde] = USDe_USD_FEED;
+        _tokenOracles[USR] = USR_USD_FEED;
+        _tokenOracles[USDf] = USDf_USD_FEED;
+        _tokenOracles[GHO] = GHO_USD_FEED;
+    }
 
     function _approveTokenToDex(address _token, address _dex) internal {
         if (ERC20(_token).allowance(address(this), _dex) == 0) {
@@ -111,7 +129,9 @@ contract TokenSwapper is Ownable {
         });
         SafeERC20.safeTransferFrom(ERC20(inToken), msg.sender, address(this), _inAmount);
         _approveTokenToDex(inToken, address(uniswapV3Router));
-        return uniswapV3Router.exactInputSingle(_inputSingle);
+        uint256 _outActual = uniswapV3Router.exactInputSingle(_inputSingle);
+        emit SwapInUniswap(inToken, outToken, msg.sender, _inAmount, _outActual);
+        return _outActual;
     }
 
     ///////////////////////////////
@@ -358,25 +378,7 @@ contract TokenSwapper is Ownable {
         return selector;
     }
 
-    function getAssetOracle(address _token) external pure returns (address) {
-        if (_token == usdt) {
-            return USDT_USD_Feed;
-        } else if (_token == usdc) {
-            return USDC_USD_Feed;
-        } else if (_token == usds) {
-            return USDS_USD_Feed;
-        } else if (_token == sUSDe) {
-            return sUSDe_FEED;
-        } else if (_token == usde) {
-            return USDe_USD_FEED;
-        } else if (_token == USR) {
-            return USR_USD_FEED;
-        } else if (_token == USDf) {
-            return USDf_USD_FEED;
-        } else if (_token == GHO) {
-            return GHO_USD_FEED;
-        } else {
-            return Constants.ZRO_ADDR;
-        }
+    function getAssetOracle(address _token) external view returns (address) {
+        return _tokenOracles[_token];
     }
 }

@@ -132,6 +132,9 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         return _amount > _maxAllocation ? _maxAllocation : _amount;
     }
 
+    /**
+     * @dev set _applyMargin to true if a bit more needed which typically is useful in swap
+     */
     function _capAmountByBalance(ERC20 _token, uint256 _amount, bool _applyMargin) public view returns (uint256) {
         uint256 _expected = (_applyMargin && _swapper != Constants.ZRO_ADDR)
             ? TokenSwapper(_swapper).applySlippageMargin(_amount)

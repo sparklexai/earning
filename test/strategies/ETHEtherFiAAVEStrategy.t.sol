@@ -32,6 +32,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     address public stkVOwner;
     address public strategist;
     address public aaveHelperOwner;
+    address public strategyOwner;
 
     address weETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     ILiquidityPool etherfiLP = ILiquidityPool(0x308861A430be4cce5502d0A12724771Fc6DaF216);
@@ -44,6 +45,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     // events to check
     event DummyRewardClaimed(uint256 index, address account, uint256 amount);
 
+    bytes32 swapUniswapEventSignature = keccak256("SwapInUniswap(address,address,address,uint256,uint256)");
+    bytes32 swapCurveEventSignature = keccak256("SwapInCurve(address,address,address,uint256,uint256)");
+
     function setUp() public {
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleXVault", "SPXV");
         stkVOwner = stkVault.owner();
@@ -53,6 +57,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         strategist = myStrategy.strategist();
         assertEq(address(stkVault), myStrategy.vault());
         assertEq(stkVault.asset(), myStrategy.asset());
+        strategyOwner = myStrategy.owner();
 
         swapper = new TokenSwapper();
         etherfiHelper = new EtherFiHelper();
@@ -68,36 +73,34 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.setSwapper(address(swapper));
         vm.stopPrank();
 
-        address _strategyOwner = myStrategy.owner();
-
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
-        vm.startPrank(_strategyOwner);
+        vm.startPrank(strategyOwner);
         myStrategy.setSwapper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
-        vm.startPrank(_strategyOwner);
+        vm.startPrank(strategyOwner);
         myStrategy.setStrategist(Constants.ZRO_ADDR);
         vm.stopPrank();
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
-        vm.startPrank(_strategyOwner);
+        vm.startPrank(strategyOwner);
         myStrategy.setAAVEHelper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
-        vm.startPrank(_strategyOwner);
+        vm.startPrank(strategyOwner);
         myStrategy.setEtherFiHelper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
-        vm.startPrank(_strategyOwner);
+        vm.startPrank(strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setEtherFiHelper(address(etherfiHelper));
         myStrategy.setAAVEHelper(address(aaveHelper));
         vm.stopPrank();
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
-        vm.startPrank(_strategyOwner);
+        vm.startPrank(strategyOwner);
         myStrategy.setStrategist(Constants.ZRO_ADDR);
         vm.stopPrank();
     }
@@ -382,7 +385,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
     }
 
-    function test_Basic_Invest_Redeem(uint256 _testVal) public {
+    function test_Basic_Invest_Redeem(uint256 _testVal, uint256 _curveRatio) public {
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
@@ -392,9 +395,21 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         uint256 _initSupply = _testVal / 2;
         uint256 _initDebt = _initSupply * 9;
+
+        _curveRatio = bound(_curveRatio, 0, Constants.TOTAL_BPS);
+        vm.startPrank(strategyOwner);
+        myStrategy.setSwapCurveRatio(_curveRatio);
+        vm.stopPrank();
+
+        vm.recordLogs();
         vm.startPrank(strategist);
         myStrategy.invest(_initSupply, _initDebt, EMPTY_CALLDATA);
         vm.stopPrank();
+        if (_curveRatio == 0 || _curveRatio == Constants.TOTAL_BPS) {
+            Vm.Log[] memory logEntries = vm.getRecordedLogs();
+            bytes32 _targetEvent = _curveRatio == 0 ? swapCurveEventSignature : swapUniswapEventSignature;
+            assertFalse(TestUtils._findTargetEvent(logEntries, _targetEvent));
+        }
 
         (uint256 _netSupply, uint256 _debt, uint256 _totalSupply) = myStrategy.getNetSupplyAndDebt(true);
         uint256 _flashloanFee = TestUtils._applyFlashLoanFeeFromAAVE(_debt);

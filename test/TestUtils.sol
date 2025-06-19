@@ -281,4 +281,16 @@ contract TestUtils is Test {
         vm.selectFork(forkId);
         assertEq(_blockHight, block.number);
     }
+
+    function _findTargetEvent(Vm.Log[] memory logs, bytes32 _targetEvent) internal view returns (bool) {
+        bool eventFound = false;
+        for (uint256 i = 0; i < logs.length; i++) {
+            Vm.Log memory log = logs[i];
+            if (log.topics[0] == _targetEvent) {
+                eventFound = true;
+                break;
+            }
+        }
+        return eventFound;
+    }
 }
