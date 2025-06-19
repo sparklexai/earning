@@ -499,7 +499,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256[] memory _reqIDs = new uint256[](1);
         bytes memory EMPTY_CALLDATA;
 
-        for (uint256 i = 0; i < 30; i++) {
+        for (uint256 i = 0; i < etherfiHelper.MAX_ACTIVE_WITHDRAW(); i++) {
             (uint256 _toRedeem,) = aaveHelper.getAvailableBorrowAmount(address(myStrategy));
 
             vm.startPrank(strategist);

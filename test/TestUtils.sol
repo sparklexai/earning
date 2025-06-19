@@ -9,8 +9,12 @@ import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
 import {DummyDEXRouter} from "./mock/DummyDEXRouter.sol";
 import {Create3} from "./Create3.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IStrategy} from "../interfaces/IStrategy.sol";
 
 contract TestUtils is Test {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     bytes32 internal nextUser = keccak256(abi.encodePacked("user address"));
     uint256 constant wETHVal = 10000 ether;
@@ -18,6 +22,7 @@ contract TestUtils is Test {
     uint256 constant BIGGER_TOLERANCE = 3 * 1e16;
     uint256 constant MIN_SHARE = 10 ** 6;
     uint256 constant MAX_STRATEGIES_NUM = 8;
+    EnumerableSet.AddressSet private _testUsers;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();
@@ -29,6 +34,8 @@ contract TestUtils is Test {
 
         uint256 _asset = ERC20(wETH).balanceOf(_user);
         assertEq(_asset, wETHVal);
+
+        _testUsers.add(_user);
 
         return _user;
     }
@@ -191,8 +198,18 @@ contract TestUtils is Test {
     }
 
     function _checkTotalShare(address _vault) internal {
-        assertTrue(SparkleXVault(_vault).totalSupply() >= MIN_SHARE);
-        assertTrue(ERC20(_vault).balanceOf(_vault) >= MIN_SHARE);
+        uint256 _totalSupply = SparkleXVault(_vault).totalSupply();
+        assertTrue(_totalSupply >= MIN_SHARE);
+
+        uint256 _vaultShare = ERC20(_vault).balanceOf(_vault);
+        assertTrue(_vaultShare >= MIN_SHARE);
+
+        uint256 usrLength = _testUsers.length();
+        uint256 _usrShares;
+        for (uint256 i = 0; i < usrLength; i++) {
+            _usrShares += ERC20(_vault).balanceOf(_testUsers.at(i));
+        }
+        assertEq(_totalSupply, _usrShares + _vaultShare);
     }
 
     function _checkStrategyAllocations(address _vault) internal {
@@ -203,6 +220,7 @@ contract TestUtils is Test {
             if (_strategy != Constants.ZRO_ADDR) {
                 _activeCount++;
                 _totalAllocs += SparkleXVault(_vault).strategyAllocations(_strategy);
+                assertTrue(IStrategy(_strategy).totalAssets() >= IStrategy(_strategy).assetsInCollection());
             }
         }
         assertEq(_totalAllocs, SparkleXVault(_vault).strategiesAllocationSum());

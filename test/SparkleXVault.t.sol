@@ -129,6 +129,14 @@ contract SparkleXVaultTest is TestUtils {
         uint256 _balInRecipient = ERC20(wETH).balanceOf(_feeRecipient);
         console.log("_fee2:%d,_balRecipient:%d", _feeExpected * 2, _balInRecipient);
         assertTrue(_assertApproximateEq(_feeExpected * 2, _balInRecipient, BIGGER_TOLERANCE));
+
+        _changeWithdrawFee(stkVOwner, address(stkVault), 0);
+        assertEq(0, stkVault.WITHDRAW_FEE_BPS());
+
+        _balInRecipient = ERC20(wETH).balanceOf(_feeRecipient);
+        _redeemed = TestUtils._makeRedemptionRequest(_user, _residueShare, address(stkVault));
+        assertEq(_balInRecipient, ERC20(wETH).balanceOf(_feeRecipient));
+        assertEq(_redeemed, _residueShare);
     }
 
     function test_Basic_ManagementFee(uint256 _feeBps) public {
@@ -255,6 +263,15 @@ contract SparkleXVaultTest is TestUtils {
     }
 
     function test_DepositWithReferral() public {
+        address _generousPoorUser = TestUtils._getSugarUser();
+        vm.startPrank(_generousPoorUser);
+        ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        vm.stopPrank();
+        vm.expectRevert(Constants.TOO_SMALL_FIRST_SHARE.selector);
+        vm.startPrank(_generousPoorUser);
+        stkVault.deposit(MIN_SHARE - 1, _generousPoorUser);
+        vm.stopPrank();
+
         uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
 
         address _user = TestUtils._getSugarUser();
@@ -275,6 +292,14 @@ contract SparkleXVaultTest is TestUtils {
 
         uint256 _totalAssets = stkVault.totalAssets();
         assertEq(wETHVal + _generousAsset, _totalAssets);
+
+        vm.recordLogs();
+        vm.startPrank(stkVOwner);
+        stkVault.requestRedemption(_userShare);
+        stkVault.claimRedemptionRequest();
+        vm.stopPrank();
+        Vm.Log[] memory logEntries = vm.getRecordedLogs();
+        assertEq(0, logEntries.length);
     }
 
     function test_Strategy_Add_Remove(uint256 _testVal) public {

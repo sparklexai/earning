@@ -533,6 +533,54 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         assertEq(0, _ltv);
     }
 
+    function test_Simple_Collect_PendleAAVE(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+        bytes memory EMPTY_CALLDATA;
+
+        uint256 _initDebt = magicUSDCAmountLeveraged; //aaveHelper.previewLeverageForInvest(magicUSDCAmount, _initDebt);
+        bytes memory _prepareCALLDATA =
+            _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, magicUSDCAmount);
+        bytes memory _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, _initDebt);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).invest(
+            magicUSDCAmount, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
+        );
+        vm.stopPrank();
+
+        uint256 _maxRedeemablePT = aaveHelper.getMaxRedeemableAmount();
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).redeem(_maxRedeemablePT, EMPTY_CALLDATA);
+        vm.stopPrank();
+        uint256 _ptResidueForCollect = ERC20(address(PT_ADDR1)).balanceOf(address(myStrategy));
+        assertTrue(_ptResidueForCollect > 0);
+
+        uint256 _toCollectAsset = PendleAAVEStrategy(myStrategy)._convertSupplyToAsset(_ptResidueForCollect);
+        uint256[] memory _previewCollect = aaveHelper.previewCollect(_toCollectAsset);
+        assertEq(3, _previewCollect.length);
+        assertEq(1, _previewCollect[0]);
+
+        _prepareSwapForMockRouter(
+            mockRouter,
+            address(PT_ADDR1),
+            usdc,
+            usdcWhale,
+            (Constants.ONE_ETHER * Constants.ONE_ETHER / USDC_TO_PT1_DUMMY_PRICE)
+        );
+        bytes memory _collectCALLDATA =
+            _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _previewCollect[1]);
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).collect(_toCollectAsset, _collectCALLDATA);
+        vm.stopPrank();
+        assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(address(myStrategy)));
+    }
+
     function _printAAVEPosition() internal view returns (uint256, uint256) {
         (uint256 _cBase, uint256 _dBase, uint256 _leftBase, uint256 _liqThresh, uint256 _ltv, uint256 _healthFactor) =
             aavePool.getUserAccountData(address(myStrategy));
