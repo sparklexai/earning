@@ -98,6 +98,8 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         bytes memory _prepareCALLDATA = _getZapInCalldataFromSDK(address(PT_ADDR1), magicUSDCAmount);
         bytes memory _flCALLDATA = _getZapInCalldataFromSDK(address(PT_ADDR1), _initDebt);
 
+        (bool _useSpark,,) = aaveHelper.useSparkFlashloan();
+        assertEq(_useSpark, true);
         vm.startPrank(strategist);
         PendleAAVEStrategy(myStrategy).invest(
             _initSupply, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
@@ -341,7 +343,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
             mockRouter, address(UNDERLYING_YIELD_ADDR3), address(PT_ADDR3), PT3_Whale, USDC_TO_PT3_DUMMY_PRICE
         );
         {
-            vm.expectRevert(Constants.ONLY_FOR_STRATEGIST_OR_OWNER.selector);
+            vm.expectRevert(Constants.ONLY_FOR_STRATEGIST_OR_OWNER_OR_FL.selector);
             vm.startPrank(_user);
             PendleAAVEStrategy(myStrategy).buyPTWithAsset(UNDERLYING_YIELD_ADDR3, _yieldTokenBalance, _buyCALLDATA);
             vm.stopPrank();

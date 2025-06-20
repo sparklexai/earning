@@ -18,6 +18,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     // integrations - Ethereum mainnet
     ///////////////////////////////
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
+    IPool sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
 
     ///////////////////////////////
     // member storage
@@ -34,7 +35,10 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     event AAVEHelperChanged(address indexed _old, address indexed _new);
     event WithdrawFromAAVE(address indexed _caller, uint256 _withdrawn, uint256 _health);
 
-    constructor(ERC20 token, address vault) BaseSparkleXStrategy(token, vault) {}
+    constructor(ERC20 token, address vault) BaseSparkleXStrategy(token, vault) {
+        _approveToken(address(token), address(aavePool));
+        _approveToken(address(token), address(sparkPool));
+    }
 
     function setAAVEHelper(address _newHelper) external onlyOwner {
         if (
@@ -192,7 +196,8 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         );
 
         // use flashloan to leverage position
-        aavePool.flashLoanSimple(
+        (, address _flProvider,) = AAVEHelper(_aaveHelper).useSparkFlashloan();
+        IPool(_flProvider).flashLoanSimple(
             address(this),
             address(AAVEHelper(_aaveHelper)._borrowToken()),
             _toBorrow,
@@ -208,9 +213,10 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         uint256 _deleveragedAmount,
         bytes calldata _extraAction
     ) internal {
+        (, address _flProvider,) = AAVEHelper(_aaveHelper).useSparkFlashloan();
         if (_expectedAsset > 0 && _expectedAsset < AAVEHelper(_aaveHelper).applyLeverageMargin(_netSupplyAsset)) {
             // deleverage a portion if possible
-            aavePool.flashLoanSimple(
+            IPool(_flProvider).flashLoanSimple(
                 address(this),
                 address(AAVEHelper(_aaveHelper)._borrowToken()),
                 _deleveragedAmount,
@@ -219,7 +225,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
             );
         } else {
             // deleverage everything
-            aavePool.flashLoanSimple(
+            IPool(_flProvider).flashLoanSimple(
                 address(this),
                 address(AAVEHelper(_aaveHelper)._borrowToken()),
                 _debtAsset,

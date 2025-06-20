@@ -222,7 +222,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         ERC20 _supplyToken = AAVEHelper(_aaveHelper)._supplyToken();
         ERC20 _borrowToken = AAVEHelper(_aaveHelper)._borrowToken();
 
-        if (msg.sender != address(aavePool)) {
+        if (msg.sender != address(aavePool) && msg.sender != address(sparkPool)) {
             revert Constants.WRONG_AAVE_FLASHLOAN_CALLER();
         }
         if (initiator != address(this)) {

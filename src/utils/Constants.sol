@@ -77,6 +77,7 @@ library Constants {
     error TOO_MUCH_TO_BORROW();
     error DIFFERENT_TOKEN_IN_AAVE_HELPER();
     error POSITION_STILL_IN_USE();
+    error ONLY_FOR_STRATEGIST_OR_OWNER_OR_FL();
 
     // errors in EtherFi related strategy
     error TOO_MANY_WITHDRAW_FOR_ETHERFI();

@@ -48,8 +48,11 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
      * @dev allow only called by strategist or owner or aavePool.
      */
     modifier onlyStrategistOrOwnerOrAAVE() {
-        if (msg.sender != _strategist && msg.sender != owner() && msg.sender != address(aavePool)) {
-            revert Constants.ONLY_FOR_STRATEGIST_OR_OWNER();
+        if (
+            msg.sender != _strategist && msg.sender != owner() && msg.sender != address(aavePool)
+                && msg.sender != address(sparkPool)
+        ) {
+            revert Constants.ONLY_FOR_STRATEGIST_OR_OWNER_OR_FL();
         }
         _;
     }
@@ -286,7 +289,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
         external
         returns (bool)
     {
-        if (msg.sender != address(aavePool)) {
+        if (msg.sender != address(aavePool) && msg.sender != address(sparkPool)) {
             revert Constants.WRONG_AAVE_FLASHLOAN_CALLER();
         }
         if (initiator != address(this)) {

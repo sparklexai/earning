@@ -184,7 +184,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
 
         (uint256 _netSupply, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
-        uint256 _flashloanFee = TestUtils._applyFlashLoanFeeFromAAVE(_debt);
+        uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
         uint256 _totalAssets = stkVault.totalAssets();
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), BIGGER_TOLERANCE));
 
@@ -263,7 +263,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
 
         (uint256 _netSupply, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
-        uint256 _flashloanFee = TestUtils._applyFlashLoanFeeFromAAVE(_debt);
+        uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
         uint256 _totalAssets = stkVault.totalAssets();
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), BIGGER_TOLERANCE));
 
@@ -292,7 +292,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         _totalAssets = stkVault.totalAssets();
         uint256 _totalLoss = _flashloanFee
-            + TestUtils._applyFlashLoanFeeFromAAVE(aaveHelper.getMaxLeverage(_portionVal)) + _activeWithdrawReqs[0][2]
+            + TestUtils._applyFlashLoanFee(aaveHelper, aaveHelper.getMaxLeverage(_portionVal)) + _activeWithdrawReqs[0][2]
             + _activeWithdrawReqs[0][3];
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
 
@@ -309,7 +309,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 2);
 
         _totalAssets = stkVault.totalAssets();
-        _totalLoss = _totalLoss + TestUtils._applyFlashLoanFeeFromAAVE(aaveHelper.getMaxLeverage(_portionVal * 2))
+        _totalLoss = _totalLoss + TestUtils._applyFlashLoanFee(aaveHelper, aaveHelper.getMaxLeverage(_portionVal * 2))
             + _activeWithdrawReqs[1][2] + _activeWithdrawReqs[1][3];
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
 
@@ -412,7 +412,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         }
 
         (uint256 _netSupply, uint256 _debt, uint256 _totalSupply) = myStrategy.getNetSupplyAndDebt(true);
-        uint256 _flashloanFee = TestUtils._applyFlashLoanFeeFromAAVE(_debt);
+        uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
         uint256 _totalAssets = stkVault.totalAssets();
         assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), BIGGER_TOLERANCE));
         assertTrue(_assertApproximateEq(_initDebt + _flashloanFee, _debt, BIGGER_TOLERANCE));
@@ -670,7 +670,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         // sugardaddy strategy to mock EtherFi yield
         uint256 _totalAssets = stkVault.totalAssets();
         (, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
-        uint256 _flashloanFee = TestUtils._applyFlashLoanFeeFromAAVE(_debt);
+        uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
         bytes memory EMPTY_CALLDATA;
 
         // collect all from this strategy

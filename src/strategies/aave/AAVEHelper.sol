@@ -33,6 +33,7 @@ contract AAVEHelper is Ownable {
     // integrations - Ethereum mainnet
     ///////////////////////////////
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
+    IPool sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
     IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
 
     ///////////////////////////////
@@ -338,10 +339,11 @@ contract AAVEHelper is Ownable {
             // borrow amount for partial deleverage to repay a portion of debt
             _result[3] = getMaxLeverage(_amountToCollect);
             _result[3] = _result[3] > _debtAsset ? _result[2] : _result[3];
+            (,, uint256 _flFee) = useSparkFlashloan();
             _result[4] = _result[3] == _result[2]
                 ? _totalInSupply
                 : BaseAAVEStrategy(_strategy)._convertBorrowToSupply(
-                    _result[3] + (_result[3] * aavePool.FLASHLOAN_PREMIUM_TOTAL() / Constants.TOTAL_BPS) + _amountToCollect
+                    _result[3] + (_result[3] * _flFee / Constants.TOTAL_BPS) + _amountToCollect
                 );
         } else {
             _result[3] = _result[2];
@@ -381,5 +383,14 @@ contract AAVEHelper is Ownable {
         } else {
             return _debtInBorrow > 0 ? BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_margin) : type(uint256).max;
         }
+    }
+
+    function useSparkFlashloan() public view returns (bool, address, uint256) {
+        uint256 _aaveFee = aavePool.FLASHLOAN_PREMIUM_TOTAL();
+        uint256 _sparkFee = sparkPool.FLASHLOAN_PREMIUM_TOTAL();
+        bool _useSpark = _sparkFee < _aaveFee;
+        uint256 _minFee = _useSpark ? _sparkFee : _aaveFee;
+        address _flProvider = _useSpark ? address(sparkPool) : address(aavePool);
+        return (_useSpark, _flProvider, _minFee);
     }
 }

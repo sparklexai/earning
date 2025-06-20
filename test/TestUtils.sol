@@ -11,6 +11,7 @@ import {DummyDEXRouter} from "./mock/DummyDEXRouter.sol";
 import {Create3} from "./Create3.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IStrategy} from "../interfaces/IStrategy.sol";
+import {AAVEHelper} from "../src/strategies/aave/AAVEHelper.sol";
 
 contract TestUtils is Test {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -71,8 +72,9 @@ contract TestUtils is Test {
         }
     }
 
-    function _applyFlashLoanFeeFromAAVE(uint256 _amt) internal pure returns (uint256) {
-        return _amt * 5 / Constants.TOTAL_BPS;
+    function _applyFlashLoanFee(AAVEHelper _aaveHelper, uint256 _amt) internal view returns (uint256) {
+        (,, uint256 _flFee) = _aaveHelper.useSparkFlashloan();
+        return _amt * _flFee / Constants.TOTAL_BPS;
     }
 
     function _makeRedemptionRequest(address _user, uint256 _share, address _vault) internal returns (uint256) {
