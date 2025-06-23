@@ -8,8 +8,9 @@ import {Constants} from "./utils/Constants.sol";
 import {IStrategy} from "../interfaces/IStrategy.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
-contract SparkleXVault is ERC4626, Ownable {
+contract SparkleXVault is ERC4626, Ownable, Pausable {
     using Math for uint256;
 
     ///////////////////////////////
@@ -41,6 +42,7 @@ contract SparkleXVault is ERC4626, Ownable {
     address[MAX_ACTIVE_STRATEGY] public allStrategies;
     address public _redemptionClaimer;
     address public _feeRecipient;
+    address public _pauseCommander;
 
     /**
      * @dev active strategy number
@@ -69,6 +71,7 @@ contract SparkleXVault is ERC4626, Ownable {
     event EarnRatioChanged(address indexed _caller, uint256 _new);
     event WithdrawFeeChanged(address indexed _caller, uint256 _new);
     event ManagementFeeChanged(address indexed _caller, uint256 _new);
+    event PauseCommanderChanged(address indexed _old, address indexed _new);
     event StrategyAllocationChanged(address indexed _caller, address indexed _strategy, uint256 _new);
 
     constructor(ERC20 _asset, string memory name_, string memory symbol_)
@@ -81,6 +84,7 @@ contract SparkleXVault is ERC4626, Ownable {
         }
         _redemptionClaimer = msg.sender;
         _feeRecipient = msg.sender;
+        _pauseCommander = msg.sender;
     }
 
     /**
@@ -89,6 +93,16 @@ contract SparkleXVault is ERC4626, Ownable {
     modifier onlyRedemptionClaimer() {
         if (msg.sender != _redemptionClaimer) {
             revert Constants.ONLY_FOR_CLAIMER();
+        }
+        _;
+    }
+
+    /**
+     * @dev allow only called by _pauseCommander.
+     */
+    modifier onlyPauseCommander() {
+        if (msg.sender != _pauseCommander) {
+            revert Constants.ONLY_FOR_PAUSE_COMMANDER();
         }
         _;
     }
@@ -152,6 +166,14 @@ contract SparkleXVault is ERC4626, Ownable {
         _feeRecipient = _newRecipient;
     }
 
+    function setPauseCommander(address _newPauseCommander) external onlyOwner {
+        if (_newPauseCommander == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
+        emit PauseCommanderChanged(_pauseCommander, _newPauseCommander);
+        _pauseCommander = _newPauseCommander;
+    }
+
     function setEarnRatio(uint256 _ratio) external onlyOwner {
         if (_ratio > Constants.TOTAL_BPS) {
             revert Constants.INVALID_BPS_TO_SET();
@@ -177,7 +199,16 @@ contract SparkleXVault is ERC4626, Ownable {
         emit ManagementFeeChanged(msg.sender, _ratio);
     }
 
-    function addStrategy(address _strategyAddr, uint256 _allocation) external onlyOwner {
+    function togglePauseState() external onlyPauseCommander returns (bool) {
+        if (paused()) {
+            _unpause();
+        } else {
+            _pause();
+        }
+        return paused();
+    }
+
+    function addStrategy(address _strategyAddr, uint256 _allocation) external onlyOwner whenNotPaused {
         if (
             _strategyAddr == Constants.ZRO_ADDR || IStrategy(_strategyAddr).asset() != asset()
                 || IStrategy(_strategyAddr).vault() != address(this) || strategyAllocations[_strategyAddr] > 0
@@ -205,7 +236,7 @@ contract SparkleXVault is ERC4626, Ownable {
         emit StrategyAdded(_strategyAddr, _allocation);
     }
 
-    function removeStrategy(address _strategyAddr, bytes calldata _extraAction) external onlyOwner {
+    function removeStrategy(address _strategyAddr, bytes calldata _extraAction) external onlyOwner whenNotPaused {
         uint256 _strategyAlloc = strategyAllocations[_strategyAddr];
         if (_strategyAlloc == 0 || IStrategy(_strategyAddr).vault() != address(this)) {
             revert Constants.WRONG_STRATEGY_TO_REMOVE();
@@ -231,7 +262,7 @@ contract SparkleXVault is ERC4626, Ownable {
         emit StrategyRemoved(_strategyAddr);
     }
 
-    function accumulateManagementFee() external onlyRedemptionClaimerOrOwner {
+    function accumulateManagementFee() external onlyRedemptionClaimerOrOwner whenNotPaused {
         _accumulateManagementFeeInternal();
     }
 
@@ -271,7 +302,7 @@ contract SparkleXVault is ERC4626, Ownable {
         return (newFee, _timeElapsed);
     }
 
-    function claimManagementFee() external onlyRedemptionClaimerOrOwner {
+    function claimManagementFee() external onlyRedemptionClaimerOrOwner whenNotPaused {
         ManagementFeeRecord storage _feeRecord = mgmtFee;
         uint256 _feeToClaim = _feeRecord.feesAccumulated;
         if (_feeToClaim == 0) {
@@ -296,7 +327,11 @@ contract SparkleXVault is ERC4626, Ownable {
     ///////////////////////////////
     // erc4626 customized methods
     ///////////////////////////////
-    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares)
+        internal
+        override
+        whenNotPaused
+    {
         if (shares == 0) {
             revert Constants.ZERO_SHARE_TO_MINT();
         }
@@ -337,6 +372,7 @@ contract SparkleXVault is ERC4626, Ownable {
     function _withdraw(address caller, address receiver, address owner, uint256 assets, uint256 shares)
         internal
         override
+        whenNotPaused
     {
         if (caller != owner) {
             _spendAllowance(owner, caller, shares);
@@ -364,7 +400,7 @@ contract SparkleXVault is ERC4626, Ownable {
     /**
      * @dev user should use this method to request redemption.
      */
-    function requestRedemption(uint256 shares) external returns (uint256) {
+    function requestRedemption(uint256 shares) external whenNotPaused returns (uint256) {
         uint256 _shareBalance = balanceOf(msg.sender);
         if (shares > _shareBalance) {
             shares = _shareBalance;
@@ -404,7 +440,7 @@ contract SparkleXVault is ERC4626, Ownable {
         return _claimRedemptionRequestFor(msg.sender);
     }
 
-    function _claimRedemptionRequestFor(address _user) internal returns (uint256) {
+    function _claimRedemptionRequestFor(address _user) internal whenNotPaused returns (uint256) {
         uint256 _share = userRedemptionRequestShares[_user];
         if (_share == 0) {
             return _share;

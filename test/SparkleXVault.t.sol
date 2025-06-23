@@ -10,6 +10,8 @@ import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {DummyStrategy} from "./mock/DummyStrategy.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 // run this test with mainnet fork
 // forge test --fork-url <rpc_url> --match-path SparkleXVault -vvv
@@ -513,5 +515,37 @@ contract SparkleXVaultTest is TestUtils {
 
         assertEq(_newAlloc, stkVault.strategyAllocations(address(anewStrategy)));
         assertEq(_oldTotalAlloc + _newAlloc - _oldAlloc, stkVault.strategiesAllocationSum());
+    }
+
+    function test_Vault_Pause() public {
+        _fundFirstDepositGenerously(address(stkVault));
+        address _user = TestUtils._getSugarUser();
+
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, _user));
+        vm.startPrank(_user);
+        stkVault.setPauseCommander(_user);
+        vm.stopPrank();
+
+        vm.startPrank(stkVOwner);
+        stkVault.setPauseCommander(_user);
+        vm.stopPrank();
+        assertEq(_user, stkVault._pauseCommander());
+
+        TestUtils._toggleVaultPause(address(stkVault), true);
+
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.accumulateManagementFee();
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+
+        TestUtils._toggleVaultPause(address(stkVault), false);
+
+        vm.startPrank(stkVOwner);
+        stkVault.accumulateManagementFee();
+        vm.stopPrank();
+        (uint256 _fee,,) = stkVault.mgmtFee();
+        assertTrue(_fee > 0);
     }
 }

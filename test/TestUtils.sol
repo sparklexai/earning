@@ -313,4 +313,12 @@ contract TestUtils is Test {
         }
         return eventFound;
     }
+
+    function _toggleVaultPause(address _vault, bool _expected) internal returns (bool) {
+        vm.startPrank(SparkleXVault(_vault)._pauseCommander());
+        bool _paused = SparkleXVault(_vault).togglePauseState();
+        vm.stopPrank();
+        assertEq(_expected, _paused);
+        return _paused;
+    }
 }

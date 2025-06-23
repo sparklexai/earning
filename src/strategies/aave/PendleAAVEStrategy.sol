@@ -107,6 +107,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     function buyPTWithAsset(address _assetToken, uint256 assetAmount, bytes memory _swapData)
         public
         onlyStrategistOrOwnerOrAAVE
+        onlyVaultNotPaused
         returns (uint256)
     {
         address ptToken = address(AAVEHelper(_aaveHelper)._supplyToken());

@@ -583,6 +583,25 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(address(myStrategy)));
     }
 
+    function test_Pause_PendleAAVEStrategy(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        bytes memory EMPTY_CALLDATA;
+        TestUtils._toggleVaultPause(address(stkVault), true);
+
+        uint256 _toAllcoate = stkVault.getAllocationAvailableForStrategy(myStrategy);
+        vm.expectRevert(Constants.VAULT_ALREADY_PAUSED.selector);
+        vm.startPrank(strategyOwner);
+        PendleAAVEStrategy(myStrategy).allocate(_toAllcoate, EMPTY_CALLDATA);
+        vm.stopPrank();
+    }
+
     function _printAAVEPosition() internal view returns (uint256, uint256) {
         (uint256 _cBase, uint256 _dBase, uint256 _leftBase, uint256 _liqThresh, uint256 _ltv, uint256 _healthFactor) =
             aavePool.getUserAccountData(address(myStrategy));

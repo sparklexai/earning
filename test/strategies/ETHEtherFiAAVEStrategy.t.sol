@@ -789,12 +789,45 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         bytes memory _callData =
             rewardDistributor.generateClaimCallData(_index, address(myStrategy), _amount, _merkleProofs);
 
+        TestUtils._toggleVaultPause(address(stkVault), true);
+
+        vm.expectRevert(Constants.VAULT_ALREADY_PAUSED.selector);
+        vm.startPrank(strategyOwner);
+        myStrategy.manageCall(address(rewardDistributor), _callData, 0);
+        vm.stopPrank();
+
+        TestUtils._toggleVaultPause(address(stkVault), false);
+
         vm.expectEmit();
         emit DummyRewardClaimed(_index, address(myStrategy), _amount);
 
-        vm.startPrank(myStrategy.owner());
+        vm.startPrank(strategyOwner);
         myStrategy.manageCall(address(rewardDistributor), _callData, 0);
         vm.stopPrank();
+    }
+
+    function test_Pause_EtherFiAAVEStrategy(uint256 _testVal) public {
+        _fundFirstDepositGenerously(address(stkVault));
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 10 ether, 100 ether);
+
+        bytes memory EMPTY_CALLDATA;
+        TestUtils._toggleVaultPause(address(stkVault), true);
+
+        vm.expectRevert(Constants.VAULT_ALREADY_PAUSED.selector);
+        vm.startPrank(strategyOwner);
+        myStrategy.invest(_assetVal, _assetVal, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        TestUtils._toggleVaultPause(address(stkVault), false);
+        vm.startPrank(strategyOwner);
+        myStrategy.invest(_assetVal, _assetVal, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(true);
+        assertTrue(_debtInAsset > 0);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
