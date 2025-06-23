@@ -61,6 +61,8 @@ library Constants {
     error ONLY_FOR_STRATEGIST_OR_OWNER();
     error TOO_MANY_STRATEGIES();
     error INVALID_HELPER_CALLER();
+    error ONLY_FOR_PAUSE_COMMANDER();
+    error VAULT_ALREADY_PAUSED();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();

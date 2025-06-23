@@ -96,6 +96,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
     function test_Dummy_BaseAAVE_WithPendlePT() public {
         DummyPendleAAVEStrategy _dummyPendleAaveStrategy = new DummyPendleAAVEStrategy(address(stkVault));
+        assertFalse(_dummyPendleAaveStrategy.vaultPaused());
 
         uint256 _supplyPTAmount = magicPTAmount;
         uint256 _borrowAmount = magicUSDCAmount;
@@ -570,6 +571,26 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         vm.startPrank(_user);
         PendleStrategy(myStrategy).redeemPTForAsset(usdc, address(PT_ADDR1), _pt1Balance, _invalidSwapData);
         vm.stopPrank();
+    }
+
+    function test_Pause_PendleStrategy(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        TestUtils._toggleVaultPause(address(stkVault), true);
+
+        vm.expectRevert(Constants.VAULT_ALREADY_PAUSED.selector);
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+
+        TestUtils._toggleVaultPause(address(stkVault), false);
+        _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, 100);
+        assertEq(1, PendleStrategy(myStrategy).getActivePTs().length);
     }
 
     function _zapInWithPendlePT(

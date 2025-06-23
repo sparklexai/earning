@@ -9,6 +9,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {TokenSwapper} from "../utils/TokenSwapper.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 interface ISparkleXVault {
     function getAllocationAvailableForStrategy(address _strategyAddr) external view returns (uint256);
@@ -64,6 +65,16 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     }
 
     /**
+     * @dev allow only called when Vault is not paused.
+     */
+    modifier onlyVaultNotPaused() {
+        if (vaultPaused()) {
+            revert Constants.VAULT_ALREADY_PAUSED();
+        }
+        _;
+    }
+
+    /**
      * @dev allow only called by strategist or owner.
      */
     modifier onlyStrategistOrOwner() {
@@ -86,6 +97,10 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     ///////////////////////////////
     // base methods
     ///////////////////////////////
+
+    function vaultPaused() public view returns (bool) {
+        return Pausable(_vault).paused();
+    }
 
     function setStrategist(address _newStrategist) external onlyOwner {
         if (_newStrategist == Constants.ZRO_ADDR) {
@@ -152,6 +167,7 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
     function manageCall(address target, bytes calldata data, uint256 value)
         external
         onlyOwner
+        onlyVaultNotPaused
         returns (bytes memory result)
     {
         result = target.functionCallWithValue(data, value);

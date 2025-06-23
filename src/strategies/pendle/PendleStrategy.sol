@@ -98,7 +98,12 @@ contract PendleStrategy is BaseSparkleXStrategy {
     /**
      * @dev simply transfer _asset with given amount from vault to this strategy
      */
-    function allocate(uint256 amount, bytes calldata /* _extraAction */ ) public override onlyStrategistOrVault {
+    function allocate(uint256 amount, bytes calldata /* _extraAction */ )
+        public
+        override
+        onlyStrategistOrVault
+        onlyVaultNotPaused
+    {
         amount = _capAllocationAmount(amount);
         if (amount == 0) {
             return;
@@ -142,7 +147,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         address underlyingYieldToken,
         address underlyingOracleAddress,
         uint32 twapSeconds
-    ) external onlyOwner {
+    ) external onlyOwner onlyVaultNotPaused {
         if (
             marketAddress == Constants.ZRO_ADDR || underlyingYieldToken == Constants.ZRO_ADDR
                 || underlyingOracleAddress == Constants.ZRO_ADDR
@@ -182,7 +187,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
      * @param ptToken PT token address of the pendle market to be removed
      * @param _swapData calldata from pendle SDK for possible redeem or swap
      */
-    function removePT(address ptToken, bytes calldata _swapData) external onlyOwner {
+    function removePT(address ptToken, bytes calldata _swapData) external onlyOwner onlyVaultNotPaused {
         PTInfo memory ptInfo = ptInfos[ptToken];
         if (ptInfo.ptToken == Constants.ZRO_ADDR) {
             revert Constants.PT_NOT_FOUND();
@@ -217,6 +222,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     function rolloverPT(address ptTokenFrom, address ptTokenTo, uint256 ptFromAmount, bytes calldata _swapData)
         external
         onlyStrategistOrOwner
+        onlyVaultNotPaused
         returns (uint256)
     {
         if (ptInfos[ptTokenFrom].ptToken == Constants.ZRO_ADDR) {
@@ -246,6 +252,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     function buyPTWithAsset(address _assetToken, address ptToken, uint256 assetAmount, bytes calldata _swapData)
         external
         onlyStrategistOrOwner
+        onlyVaultNotPaused
         returns (uint256)
     {
         _checkMarketValidity(ptToken, true);

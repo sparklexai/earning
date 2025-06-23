@@ -68,7 +68,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
      * @dev by default, this method will try to maximize the allowed leverage by looping in AAVE
      * @dev i.e., borrowing as much as possible ETH and convert to weETH for AAVE supply
      */
-    function allocate(uint256 amount, bytes calldata _extraAction) external virtual onlyStrategist {
+    function allocate(uint256 amount, bytes calldata _extraAction) external virtual onlyStrategist onlyVaultNotPaused {
         if (amount == 0) {
             return;
         }
@@ -152,6 +152,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         external
         virtual
         onlyStrategistOrOwner
+        onlyVaultNotPaused
     {
         if (_borrowAmount == 0 && _assetAmount == 0) {
             return;
