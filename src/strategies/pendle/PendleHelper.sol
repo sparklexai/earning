@@ -195,7 +195,7 @@ contract PendleHelper {
 
     function _approveToken(address _token, address _spender) internal {
         if (ERC20(_token).allowance(address(this), _spender) == 0) {
-            ERC20(_token).approve(_spender, type(uint256).max);
+            SafeERC20.forceApprove(ERC20(_token), _spender, type(uint256).max);
         }
     }
 }

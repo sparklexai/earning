@@ -50,9 +50,9 @@ contract EtherFiHelper is IERC721Receiver {
 
     constructor() {
         // ether.fi related approvals
-        ERC20(address(eETH)).approve(address(weETH), type(uint256).max);
-        ERC20(address(eETH)).approve(address(etherfiLP), type(uint256).max);
-        ERC20(address(weETH)).approve(address(weETH), type(uint256).max);
+        SafeERC20.forceApprove(ERC20(address(eETH)), address(weETH), type(uint256).max);
+        SafeERC20.forceApprove(ERC20(address(eETH)), address(etherfiLP), type(uint256).max);
+        SafeERC20.forceApprove(ERC20(address(weETH)), address(weETH), type(uint256).max);
     }
 
     ///////////////////////////////

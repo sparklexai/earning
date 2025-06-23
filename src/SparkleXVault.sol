@@ -232,7 +232,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
                 break;
             }
         }
-        ERC20(asset()).approve(_strategyAddr, type(uint256).max);
+        SafeERC20.forceApprove(ERC20(asset()), _strategyAddr, type(uint256).max);
         emit StrategyAdded(_strategyAddr, _allocation);
     }
 
@@ -258,7 +258,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
                 break;
             }
         }
-        ERC20(asset()).approve(_strategyAddr, 0);
+        SafeERC20.forceApprove(ERC20(asset()), _strategyAddr, 0);
         emit StrategyRemoved(_strategyAddr);
     }
 

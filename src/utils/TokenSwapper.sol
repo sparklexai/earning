@@ -95,7 +95,7 @@ contract TokenSwapper is Ownable {
 
     function _approveTokenToDex(address _token, address _dex) internal {
         if (ERC20(_token).allowance(address(this), _dex) == 0) {
-            ERC20(_token).approve(_dex, type(uint256).max);
+            SafeERC20.forceApprove(ERC20(_token), _dex, type(uint256).max);
         }
     }
 
