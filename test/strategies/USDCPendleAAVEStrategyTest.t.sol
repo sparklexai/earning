@@ -602,6 +602,31 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.stopPrank();
     }
 
+    function test_OracleTWAP_Pendle() public {
+        uint256 _longerTWAPPrice =
+            swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP() * 2);
+        uint256 _shorterTWAPPrice =
+            swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP());
+
+        assertTrue(_shorterTWAPPrice >= _longerTWAPPrice);
+
+        vm.warp(PT_ADDR1.expiry() - 10);
+        assertFalse(PT_ADDR1.isExpired());
+
+        _longerTWAPPrice = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP() * 2);
+        _shorterTWAPPrice = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP());
+
+        assertTrue(_shorterTWAPPrice >= _longerTWAPPrice);
+
+        vm.warp(PT_ADDR1.expiry() + Constants.ONE_YEAR);
+        assertTrue(PT_ADDR1.isExpired());
+
+        _longerTWAPPrice = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP() * 2);
+        _shorterTWAPPrice = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP());
+
+        assertEq(_shorterTWAPPrice, _longerTWAPPrice);
+    }
+
     function _printAAVEPosition() internal view returns (uint256, uint256) {
         (uint256 _cBase, uint256 _dBase, uint256 _leftBase, uint256 _liqThresh, uint256 _ltv, uint256 _healthFactor) =
             aavePool.getUserAccountData(address(myStrategy));
