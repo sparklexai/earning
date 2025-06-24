@@ -61,6 +61,8 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     address public constant PT_ATOKEN_ADDR1 = 0xDE6eF6CB4aBd3A473ffC2942eEf5D84536F8E864;
     // USDe JUL31 market
     address public constant PT_ATOKEN_ADDR3 = 0x312ffC57778CEfa11989733e6E08143E7E229c1c;
+    // eUSDe AUG14 market
+    IPPrincipalToken PT_ADDR4 = IPPrincipalToken(0x14Bdc3A3AE09f5518b923b69489CBcAfB238e617);
 
     function setUp() public {
         _createForkMainnet(22727695);
@@ -603,6 +605,8 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     }
 
     function test_OracleTWAP_Pendle() public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+
         uint256 _longerTWAPPrice =
             swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP() * 2);
         uint256 _shorterTWAPPrice =
@@ -625,6 +629,10 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         _shorterTWAPPrice = swapper.getPTPriceInSYFromPendle(address(MARKET_ADDR1), swapper.PENDLE_ORACLE_TWAP());
 
         assertEq(_shorterTWAPPrice, _longerTWAPPrice);
+
+        // test price with underlying as ERC4626
+        uint256 _eUSDePrice = PendleAAVEStrategy(myStrategy).getPTPriceInAsset(usdc, address(PT_ADDR4));
+        assertTrue(_assertApproximateEq(_eUSDePrice, Constants.ONE_ETHER, BIGGER_TOLERANCE));
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {

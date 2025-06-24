@@ -20,6 +20,7 @@ struct PTInfo {
     address syToken; // SY token address
     address underlyingYield; // underlying yieldToken of this market
     address underlyingOracle; // external oracle for underlying yieldToken of this market
+    address intermediateOracle; // external intermediate oracle for underlying yieldToken of this market
     uint32 syOracleTwapSeconds; // use 900 or 1800 for most markets
 }
 
@@ -146,6 +147,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
         address marketAddress,
         address underlyingYieldToken,
         address underlyingOracleAddress,
+        address intermediateOracleAddress,
         uint32 twapSeconds
     ) external onlyOwner onlyVaultNotPaused {
         if (
@@ -173,6 +175,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
             syToken: address(_syToken),
             underlyingYield: underlyingYieldToken,
             underlyingOracle: underlyingOracleAddress,
+            intermediateOracle: intermediateOracleAddress,
             syOracleTwapSeconds: twapSeconds
         });
         _assetOracles[underlyingYieldToken] = underlyingOracleAddress;
@@ -367,6 +370,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
             ptInfo.syOracleTwapSeconds,
             ptInfo.underlyingYield,
             ptInfo.underlyingOracle,
+            ptInfo.intermediateOracle,
             _syToUnderlyingRate(ptInfo.syToken)
         );
     }

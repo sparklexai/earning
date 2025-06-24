@@ -29,6 +29,14 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
     address public constant PENDLE_STRATEGY_ADDRESS = 0x63670E16dE53F8eb1CEf55A46120BF137C4020f4;
     string public constant PENDLE_STRATEGY_NAME = "sparklex.pendle.strategy";
 
+    ///////////////////////////////
+    // mainnet pendle PT pools
+    ///////////////////////////////
+    address public constant sUSDf_USDf_FEED = 0xe471bc940AA9831a0AeA21E6F40C1A1236EB4BB3;
+    address public constant sUSDf_MARKET_ADDR = 0x45F163E583D34b8E276445dd3Da9aE077D137d72;
+    address public constant wstUSR = 0x1202F5C7b4B9E47a1A484E8B270be34dbbC75055;
+    address public constant wstUSR_MARKET_ADDR = 0x09fA04Aac9c6d1c6131352EE950CD67ecC6d4fB9;
+
     // expect events
     event AssetOracleAdded(address indexed assetToken, address indexed oracle);
 
@@ -74,6 +82,25 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         (int256 _usdcUSDPrice,,) = swapper.getPriceFromChainLink(USDC_USD_Feed);
         (int256 _yieldUSDPrice,,) = swapper.getPriceFromChainLink(YIELD_TOKEN_FEED1);
         assertEq(_ptPrice, (uint256(_yieldUSDPrice) * _ptToSyPrice / uint256(_usdcUSDPrice)));
+
+        // test price with intermediate oracles
+        uint256 _sUSDfPrice = swapper.getPTPriceInAsset(
+            usdc,
+            USDC_USD_Feed,
+            sUSDf_MARKET_ADDR,
+            1800,
+            swapper.USDf(),
+            sUSDf_USDf_FEED,
+            swapper.USDf_USD_FEED(),
+            Constants.ONE_ETHER
+        );
+        assertTrue(_assertApproximateEq(_sUSDfPrice, Constants.ONE_ETHER, BIGGER_TOLERANCE));
+
+        // test price with underlying as ERC4626
+        uint256 _wstUSRPrice = swapper.getPTPriceInAsset(
+            usdc, USDC_USD_Feed, wstUSR_MARKET_ADDR, 1800, wstUSR, wstUSR, swapper.USR_USD_FEED(), Constants.ONE_ETHER
+        );
+        assertTrue(_assertApproximateEq(_wstUSRPrice, Constants.ONE_ETHER, BIGGER_TOLERANCE));
     }
 
     function test_PT_price_AfterExpire() public {
@@ -355,7 +382,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
         bytes memory _empty;
         _removePTMarket(address(PT_ADDR1), _empty);
-        (,,,,, uint128 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        (,,,,,, uint128 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
         assertEq(0, _twapSeconds);
 
         // some generous sugardaddy send PT1 to the strategy after PT1 removed
@@ -380,7 +407,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
         uint32 _twap = 900;
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _twap);
-        (,,,,, uint32 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        (,,,,,, uint32 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
         assertEq(_twap, _twapSeconds);
 
         address[] memory _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
@@ -414,7 +441,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         bytes memory _callData = _generateSwapCalldataForSell(myStrategy, address(MARKET_ADDR1), 0, _pt1Balance);
         _removePTMarket(address(PT_ADDR1), _callData);
         _checkBasicInvariants(address(stkVault));
-        (,,,,, _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        (,,,,,, _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
         assertEq(0, _twapSeconds);
 
         _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
@@ -445,7 +472,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
         uint32 _twap = 900;
         _addPTMarket(address(MARKET_ADDR1), UNDERLYING_YIELD_ADDR1, YIELD_TOKEN_FEED1, _twap);
-        (,,,,, uint32 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        (,,,,,, uint32 _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
         assertEq(_twap, _twapSeconds);
 
         _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
@@ -464,7 +491,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         bytes memory _callData = _generateSwapCalldataForRedeem(myStrategy, YT_ADDR1, 0, _pt1Balance);
         _removePTMarket(address(PT_ADDR1), _callData);
         _checkBasicInvariants(address(stkVault));
-        (,,,,, _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
+        (,,,,,, _twapSeconds) = PendleStrategy(myStrategy).ptInfos(address(PT_ADDR1));
         assertEq(0, _twapSeconds);
 
         _activePTMarkets = PendleStrategy(myStrategy).getActivePTs();
@@ -666,7 +693,23 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         uint32 _twapSeconds
     ) internal {
         vm.startPrank(strategyOwner);
-        PendleStrategy(myStrategy).addPT(_pendleMarket, _underlyingYieldToken, _underlyingOracle, _twapSeconds);
+        PendleStrategy(myStrategy).addPT(
+            _pendleMarket, _underlyingYieldToken, _underlyingOracle, Constants.ZRO_ADDR, _twapSeconds
+        );
+        vm.stopPrank();
+    }
+
+    function _addPTMarketWithIntermediateOracle(
+        address _pendleMarket,
+        address _underlyingYieldToken,
+        address _underlyingOracle,
+        address _intermediateOracle,
+        uint32 _twapSeconds
+    ) internal {
+        vm.startPrank(strategyOwner);
+        PendleStrategy(myStrategy).addPT(
+            _pendleMarket, _underlyingYieldToken, _underlyingOracle, _intermediateOracle, _twapSeconds
+        );
         vm.stopPrank();
     }
 

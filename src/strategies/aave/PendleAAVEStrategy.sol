@@ -13,6 +13,10 @@ import {IPPrincipalToken} from "@pendle/contracts/interfaces/IPPrincipalToken.so
 import {IStandardizedYield} from "@pendle/contracts/interfaces/IStandardizedYield.sol";
 import {PendleHelper} from "../pendle/PendleHelper.sol";
 
+interface IERC4626Vault {
+    function asset() external view returns (address);
+}
+
 /**
  * @dev deposit _asset into Pendle sUSDe market and then supply the PT in AAVE
  * @dev and looping-borrow stablecoin to get leveraged position.
@@ -87,13 +91,19 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
         address _syToken = IPPrincipalToken(ptToken).SY();
         address _yieldToken = IStandardizedYield(_syToken).yieldToken();
+        address _yieldOracle = TokenSwapper(_swapper).getAssetOracle(_yieldToken);
         return TokenSwapper(_swapper).getPTPriceInAsset(
             _assetToken,
             TokenSwapper(_swapper).getAssetOracle(_assetToken),
             address(pendleMarket),
             TokenSwapper(_swapper).PENDLE_ORACLE_TWAP(),
             _yieldToken,
-            TokenSwapper(_swapper).getAssetOracle(_yieldToken),
+            (_yieldOracle == Constants.ZRO_ADDR ? _yieldToken : _yieldOracle),
+            (
+                _yieldOracle == Constants.ZRO_ADDR
+                    ? TokenSwapper(_swapper).getAssetOracle(IERC4626Vault(_yieldToken).asset())
+                    : Constants.ZRO_ADDR
+            ),
             Constants.ONE_ETHER
         );
     }

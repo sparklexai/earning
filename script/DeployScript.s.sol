@@ -89,8 +89,8 @@ contract DeployScript is Script {
 
         myStrategy.setSwapper(address(_tokenSwapper));
         myStrategy.setPendleHelper(address(pendleHelper));
-        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe_USD_FEED, 900);
-        myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, 900);
+        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe_USD_FEED, address(0), 900);
+        myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, address(0), 900);
         myStrategy.setStrategist(_strategist);
 
         myStrategy2.setSwapper(address(_tokenSwapper));

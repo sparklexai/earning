@@ -26,6 +26,11 @@ interface IPendleHelper {
     function _strategy() external view returns (address);
 }
 
+interface IERC4626Vault {
+    function convertToAssets(uint256 _share) external view returns (uint256);
+    function decimals() external view returns (uint256);
+}
+
 contract TokenSwapper is Ownable {
     using Math for uint256;
     using Address for address;
@@ -332,6 +337,7 @@ contract TokenSwapper is Ownable {
         uint32 _twapSeconds,
         address _underlyingYield,
         address _underlyingYieldOracle,
+        address _intermediateOracle,
         uint256 _syToUnderlyingRate
     ) public view returns (uint256) {
         // 1:1 value at maturity
@@ -345,10 +351,36 @@ contract TokenSwapper is Ownable {
         }
 
         // ensure asset and underlying oracles return prices in same base unit like USD
-        (int256 _underlyingPrice,, uint8 _decimal) = getPriceFromChainLink(_underlyingYieldOracle);
+        (uint256 _uP, uint256 _uD) = _getUnderlyingPrice(_underlyingYield, _underlyingYieldOracle, _intermediateOracle);
         (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLink(_assetOracle);
-        return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * uint256(_underlyingPrice)
-            / (Constants.convertDecimalToUnit(_decimal) * uint256(_assetPrice));
+        return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * _uP
+            / (_uD * uint256(_assetPrice));
+    }
+
+    function _getUnderlyingPrice(address _underlyingYield, address _underlyingYieldOracle, address _intermediateOracle)
+        internal
+        view
+        returns (uint256, uint256)
+    {
+        uint256 _uP;
+        uint256 _uD;
+
+        if (_underlyingYield != _underlyingYieldOracle) {
+            (int256 _underlyingPrice,, uint8 _decimal) = getPriceFromChainLink(_underlyingYieldOracle);
+            _uP = uint256(_underlyingPrice);
+            _uD = Constants.convertDecimalToUnit(_decimal);
+        } else {
+            // assume _underlyingYield is an ERC4626 vault
+            _uD = Constants.convertDecimalToUnit(IERC4626Vault(_underlyingYield).decimals());
+            _uP = IERC4626Vault(_underlyingYield).convertToAssets(_uD);
+        }
+
+        if (_intermediateOracle != Constants.ZRO_ADDR) {
+            (int256 _intermediatePrice,, uint8 _decimalIntermediate) = getPriceFromChainLink(_intermediateOracle);
+            _uP = _uP * uint256(_intermediatePrice) / _uD;
+            _uD = Constants.convertDecimalToUnit(_decimalIntermediate);
+        }
+        return (_uP, _uD);
     }
 
     function getPTAmountInAsset(address _assetToken, address ptToken, uint256 ptAmount, uint256 _ptPrice)
