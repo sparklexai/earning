@@ -237,10 +237,6 @@ contract AAVEHelper is Ownable {
         return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
     }
 
-    function getMaxAllowedDebt(uint256 _supply) external view returns (uint256) {
-        return _supply > 0 ? (_supply * getMaxLTV() / Constants.TOTAL_BPS) : 0;
-    }
-
     function _checkEMode(uint8 _mode) internal pure returns (bool) {
         return (
             _mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE

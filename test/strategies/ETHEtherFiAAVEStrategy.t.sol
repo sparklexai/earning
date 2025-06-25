@@ -264,8 +264,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         (uint256 _netSupply, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
         uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
-        uint256 _totalAssets = stkVault.totalAssets();
-        assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_testVal, (stkVault.totalAssets() + _flashloanFee), BIGGER_TOLERANCE));
 
         assertTrue(
             _assertApproximateEq(
@@ -282,6 +281,15 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         swapper.setSlippage(9960);
         vm.stopPrank();
 
+        vm.startPrank(_user);
+        ERC20(wETH).transfer(address(myStrategy), _flashloanFee);
+        vm.stopPrank();
+        uint256 _assetBalanceInVault = ERC20(wETH).balanceOf(address(stkVault));
+        vm.startPrank(strategist);
+        myStrategy.collect(_flashloanFee, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(_flashloanFee, ERC20(wETH).balanceOf(address(stkVault)) - _assetBalanceInVault);
+
         uint256 _portionVal = _testVal / 10;
         vm.startPrank(strategist);
         myStrategy.collect(_portionVal, EMPTY_CALLDATA);
@@ -290,11 +298,10 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256[][] memory _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 1);
 
-        _totalAssets = stkVault.totalAssets();
         uint256 _totalLoss = _flashloanFee
             + TestUtils._applyFlashLoanFee(aaveHelper, aaveHelper.getMaxLeverage(_portionVal)) + _activeWithdrawReqs[0][2]
             + _activeWithdrawReqs[0][3];
-        assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_testVal, (stkVault.totalAssets() + _totalLoss), BIGGER_TOLERANCE));
 
         vm.expectRevert(Constants.ONLY_FOR_STRATEGIST_OR_VAULT.selector);
         vm.startPrank(_user);
@@ -308,10 +315,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 2);
 
-        _totalAssets = stkVault.totalAssets();
         _totalLoss = _totalLoss + TestUtils._applyFlashLoanFee(aaveHelper, aaveHelper.getMaxLeverage(_portionVal * 2))
             + _activeWithdrawReqs[1][2] + _activeWithdrawReqs[1][3];
-        assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _totalLoss), BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_testVal, (stkVault.totalAssets() + _totalLoss), BIGGER_TOLERANCE));
 
         _finalizeWithdrawRequest(_activeWithdrawReqs[0][0]);
         _finalizeWithdrawRequest(_activeWithdrawReqs[1][0]);
@@ -401,6 +407,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.setSwapCurveRatio(_curveRatio);
         vm.stopPrank();
 
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(strategyOwner);
+        myStrategy.setSwapCurveRatio(Constants.TOTAL_BPS + 1);
+        vm.stopPrank();
+
         vm.recordLogs();
         vm.startPrank(strategist);
         myStrategy.invest(_initSupply, _initDebt, EMPTY_CALLDATA);
@@ -410,6 +421,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
             bytes32 _targetEvent = _curveRatio == 0 ? swapCurveEventSignature : swapUniswapEventSignature;
             assertFalse(TestUtils._findTargetEvent(logEntries, _targetEvent));
         }
+
+        vm.expectRevert(Constants.TOO_MUCH_TO_BORROW.selector);
+        vm.startPrank(strategist);
+        myStrategy.invest(0, type(uint256).max, EMPTY_CALLDATA);
+        vm.stopPrank();
 
         (uint256 _netSupply, uint256 _debt, uint256 _totalSupply) = myStrategy.getNetSupplyAndDebt(true);
         uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
@@ -740,6 +756,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         (_ltv, _healthFactor) = _printAAVEPosition();
         assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
         assertEq(0, aaveHelper.getMaxRedeemableAmount());
+
+        vm.startPrank(strategist);
+        assertEq(0, myStrategy.redeem(_netSupply, EMPTY_CALLDATA));
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.collect(_netSupply * _collectPortion / Constants.TOTAL_BPS, EMPTY_CALLDATA);
         vm.stopPrank();
@@ -845,6 +866,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     }
 
     function _claimWithdrawRequest(address _user, uint256 _reqID) internal {
+        vm.expectRevert(Constants.ONLY_FOR_STRATEGIST.selector);
+        vm.startPrank(withdrawNFTAdmin);
+        myStrategy.claimWithdrawFromEtherFi(_reqID);
+        vm.stopPrank();
+
         vm.startPrank(_user);
         myStrategy.claimWithdrawFromEtherFi(_reqID);
         vm.stopPrank();

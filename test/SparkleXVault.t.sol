@@ -10,6 +10,7 @@ import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {DummyStrategy} from "./mock/DummyStrategy.sol";
+import {DummyPendleAAVEStrategy} from "./mock/DummyPendleAAVEStrategy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
@@ -32,10 +33,24 @@ contract SparkleXVaultTest is TestUtils {
     function test_Basic_Deposit_And_Withdraw() public {
         uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
 
+        uint256 _tinyDust = 1;
+        vm.startPrank(TestUtils._getSugarUser());
+        ERC20(wETH).transfer(address(stkVault), _tinyDust);
+        vm.stopPrank();
+        assertTrue(stkVault.totalSupply() < stkVault.totalAssets());
+
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(_user);
         ERC20(wETH).approve(address(stkVault), type(uint256).max);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.ZERO_SHARE_TO_MINT.selector);
+        vm.startPrank(_user);
+        stkVault.deposit(1, _user);
+        vm.stopPrank();
+
+        vm.startPrank(_user);
         uint256 _share = stkVault.deposit(wETHVal, _user);
         vm.stopPrank();
 
@@ -43,7 +58,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(_share, _userShare);
 
         uint256 _totalAssets = stkVault.totalAssets();
-        assertEq(wETHVal + _generousAsset, _totalAssets);
+        assertEq(wETHVal + _generousAsset + _tinyDust, _totalAssets);
 
         assertEq(
             ERC20(wETH).balanceOf(address(stkVault)) * stkVault.EARN_RATIO_BPS() / Constants.TOTAL_BPS,
@@ -57,9 +72,9 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(0, _userShare);
 
         _totalAssets = stkVault.totalAssets();
-        assertEq(_generousAsset, _totalAssets);
+        assertEq(_generousAsset + _tinyDust * 2, _totalAssets);
 
-        assertEq(wETHVal, _redeemed);
+        assertEq(wETHVal - _tinyDust, _redeemed);
     }
 
     function test_Withdraw_Fee(uint256 _feeBps) public {
@@ -100,10 +115,18 @@ contract SparkleXVaultTest is TestUtils {
         _share = stkVault.deposit(_testVal, _user);
         vm.stopPrank();
 
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        new DummyPendleAAVEStrategy(Constants.ZRO_ADDR);
+
         DummyStrategy myStrategy1 = new DummyStrategy(wETH, address(stkVault));
         vm.startPrank(stkVOwner);
         stkVault.setEarnRatio(Constants.TOTAL_BPS);
         stkVault.addStrategy(address(myStrategy1), 100);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.setEarnRatio(Constants.TOTAL_BPS + 1);
         vm.stopPrank();
 
         // ensure that user pay withdraw fee during request claim
@@ -161,6 +184,11 @@ contract SparkleXVaultTest is TestUtils {
         vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
         vm.startPrank(stkVOwner);
         stkVault.setWithdrawFeeRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(stkVOwner);
+        stkVault.setManagementFeeRatio(Constants.TOTAL_BPS);
         vm.stopPrank();
 
         uint256 _tsEmitted = block.timestamp;
@@ -228,6 +256,13 @@ contract SparkleXVaultTest is TestUtils {
 
         (uint256 _fee3,,) = stkVault.mgmtFee();
         assertEq(_fee3, 0);
+
+        vm.recordLogs();
+        vm.startPrank(stkVOwner);
+        stkVault.claimManagementFee();
+        vm.stopPrank();
+        Vm.Log[] memory logEntries = vm.getRecordedLogs();
+        assertEq(0, logEntries.length);
     }
 
     function test_Deposit_Inflation() public {
@@ -461,9 +496,28 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         assertEq(0, myStrategy.totalAssets());
         assertEq(Constants.ZRO_ADDR, stkVault.allStrategies(0));
+        assertEq(address(myStrategy2), stkVault.allStrategies(1));
 
         // check totalAssets() match after 1st strategy removed
         assertEq(stkVault.totalAssets(), myStrategy2.totalAssets() + ERC20(wETH).balanceOf(address(stkVault)));
+        _checkBasicInvariants(address(stkVault));
+
+        // create the third strategy
+        uint256 _alloc3 = 10;
+        DummyStrategy myStrategy3 = new DummyStrategy(wETH, address(stkVault));
+
+        // add the third strategy
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(myStrategy3), _alloc3);
+        vm.stopPrank();
+        assertEq(address(myStrategy3), stkVault.allStrategies(0));
+        vm.startPrank(stkVOwner);
+        myStrategy3.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy3)), EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(
+            stkVault.totalAssets(),
+            myStrategy2.totalAssets() + myStrategy3.totalAssets() + ERC20(wETH).balanceOf(address(stkVault))
+        );
         _checkBasicInvariants(address(stkVault));
     }
 

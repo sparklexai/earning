@@ -56,8 +56,8 @@ contract DummyPendleAAVEStrategy is BaseAAVEStrategy {
         }
         (uint256 _supplyRate, uint256 _assetRate, uint256 _borrowRate) = _getPricesFromOracleFeeds();
         return _toAsset
-            ? (_convertSupplyToAsset(_supplyPTAmount) * _supplyRate / (1e12 * _assetRate))
-            : (_convertSupplyToBorrow(_supplyPTAmount) * _supplyRate / (1e12 * _borrowRate));
+            ? (super._convertSupplyToAsset(_supplyPTAmount) * _supplyRate / (1e12 * _assetRate))
+            : (super._convertSupplyToBorrow(_supplyPTAmount) * _supplyRate / (1e12 * _borrowRate));
     }
 
     function convertToPTSupply(uint256 _fromAmount, bool _fromAsset) public view returns (uint256) {
@@ -66,13 +66,13 @@ contract DummyPendleAAVEStrategy is BaseAAVEStrategy {
         }
         (uint256 _supplyRate, uint256 _assetRate, uint256 _borrowRate) = _getPricesFromOracleFeeds();
         return _fromAsset
-            ? (_convertAssetToSupply(_fromAmount) * _assetRate * 1e12 / _supplyRate)
-            : (_convertBorrowToSupply(_fromAmount) * _borrowRate * 1e12 / _supplyRate);
+            ? (super._convertAssetToSupply(_fromAmount) * _assetRate * 1e12 / _supplyRate)
+            : (super._convertBorrowToSupply(_fromAmount) * _borrowRate * 1e12 / _supplyRate);
     }
 
     function convertFromBorrowToAsset(uint256 _borrowAmount) public view returns (uint256) {
         (, uint256 _assetRate, uint256 _borrowRate) = _getPricesFromOracleFeeds();
-        return (_convertBorrowToAsset(_borrowAmount) * _borrowRate / _assetRate);
+        return (super._convertBorrowToAsset(_borrowAmount) * _borrowRate / _assetRate);
     }
 
     function _getPricesFromOracleFeeds() internal view returns (uint256, uint256, uint256) {
@@ -86,4 +86,10 @@ contract DummyPendleAAVEStrategy is BaseAAVEStrategy {
         (uint80 roundId, int256 answer,, uint256 updatedAt,) = IOracleAggregatorV3(_feed).latestRoundData();
         return uint256(answer);
     }
+
+    function _strategy() external view returns (address) {
+        return address(0);
+    }
+
+    function _reflectCall(address _t0, bytes memory _t1, bytes memory _t2, bytes memory _t3) external {}
 }

@@ -88,7 +88,7 @@ contract TestUtils is Test {
 
         uint256 _ppsAfter =
             SparkleXVault(_vault).previewMint(Constants.convertDecimalToUnit(SparkleXVault(_vault).decimals()));
-        assertTrue(_assertApproximateEq(_ppsBefore, _ppsAfter, COMP_TOLERANCE));
+        assertTrue(_assertApproximateEq(_ppsBefore, _ppsAfter, BIGGER_TOLERANCE / COMP_TOLERANCE));
 
         return _asset;
     }
@@ -315,6 +315,11 @@ contract TestUtils is Test {
     }
 
     function _toggleVaultPause(address _vault, bool _expected) internal returns (bool) {
+        vm.expectRevert(Constants.ONLY_FOR_PAUSE_COMMANDER.selector);
+        vm.startPrank(wETH);
+        SparkleXVault(_vault).togglePauseState();
+        vm.stopPrank();
+
         vm.startPrank(SparkleXVault(_vault)._pauseCommander());
         bool _paused = SparkleXVault(_vault).togglePauseState();
         vm.stopPrank();
