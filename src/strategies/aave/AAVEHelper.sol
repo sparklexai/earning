@@ -18,11 +18,6 @@ contract AAVEHelper is Ownable {
     ///////////////////////////////
     // constants
     ///////////////////////////////
-    uint8 constant ETH_CATEGORY_AAVE = 1;
-    uint8 constant sUSDe_CATEGORY_AAVE = 2;
-    uint8 constant USDe_CATEGORY_AAVE = 11;
-    uint8 constant sUSDePT_CATEGORY_AAVE = 8;
-    uint8 constant USDePT_CATEGORY_AAVE = 10;
 
     /**
      * @dev leverage ratio in AAVE with looping supply and borrow.
@@ -72,10 +67,6 @@ contract AAVEHelper is Ownable {
     }
 
     function _setEMode(uint8 eMode) internal {
-        // Enable E Mode in AAVE for correlated assets
-        if (!_checkEMode(eMode)) {
-            revert Constants.WRONG_EMODE();
-        }
         aavePool.setUserEMode(eMode);
         _eMode = eMode;
     }
@@ -235,13 +226,6 @@ contract AAVEHelper is Ownable {
     function getMaxLeverage(uint256 _amount) public view returns (uint256) {
         uint256 _maxLTV = getMaxLTV();
         return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
-    }
-
-    function _checkEMode(uint8 _mode) internal pure returns (bool) {
-        return (
-            _mode == ETH_CATEGORY_AAVE || _mode == USDe_CATEGORY_AAVE || _mode == sUSDe_CATEGORY_AAVE
-                || _mode == sUSDePT_CATEGORY_AAVE || _mode == USDePT_CATEGORY_AAVE
-        );
     }
 
     function applyLeverageMargin(uint256 _max) public view returns (uint256) {

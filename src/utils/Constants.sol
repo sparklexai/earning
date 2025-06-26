@@ -74,7 +74,6 @@ library Constants {
     error WRONG_AAVE_FLASHLOAN_AMOUNT();
     error ZERO_SUPPLY_FOR_AAVE_LEVERAGE();
     error FAIL_TO_SAFE_LEVERAGE();
-    error WRONG_EMODE();
     error TOO_MUCH_SUPPLY_TO_REDEEM();
     error TOO_MUCH_TO_BORROW();
     error DIFFERENT_TOKEN_IN_AAVE_HELPER();

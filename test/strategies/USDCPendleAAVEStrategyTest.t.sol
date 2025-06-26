@@ -750,11 +750,6 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     }
 
     function _changeSettingToNewPT() internal {
-        vm.expectRevert(Constants.WRONG_EMODE.selector);
-        vm.startPrank(aaveHelperOwner);
-        aaveHelper.setTokens(ERC20(address(PT_ADDR3)), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 0);
-        vm.stopPrank();
-
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         vm.startPrank(aaveHelperOwner);
         aaveHelper.setTokens(ERC20(Constants.ZRO_ADDR), ERC20(usdc), ERC20(PT_ATOKEN_ADDR3), 0);
