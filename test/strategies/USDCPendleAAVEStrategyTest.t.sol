@@ -46,7 +46,6 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
     IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
     address public constant sUSDe = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
-    address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
 
     // USDe JUL31 market
     IPPrincipalToken PT_ADDR3 = IPPrincipalToken(0x917459337CaAC939D41d7493B3999f571D20D667);
@@ -533,7 +532,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         vm.mockCall(
             address(aaveOracle),
             abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(PT_ADDR1)),
-            abi.encode(_originalPrice * 9400 / Constants.TOTAL_BPS)
+            abi.encode(_originalPrice * 9300 / Constants.TOTAL_BPS)
         );
 
         (_ltv, _healthFactor) = _printAAVEPosition();
@@ -727,7 +726,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         aaveHelperOwner = aaveHelper.owner();
 
         vm.startPrank(stkVOwner);
-        stkVault.addStrategy(_deployedStrategy, 100);
+        stkVault.addStrategy(_deployedStrategy, MAX_USDC_ALLOWED);
         vm.stopPrank();
 
         strategyOwner = PendleAAVEStrategy(_deployedStrategy).owner();

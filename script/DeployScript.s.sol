@@ -21,7 +21,7 @@ contract DeployScript is Script {
     address constant aWeETH = 0xBdfa7b7893081B35Fb54027489e2Bc7A38275129;
     address public constant pendleRouteV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
     address public constant USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
-    address public constant sUSDe_USD_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
+    address public constant USDe_USD_FEED = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961;
     address public constant USDS_USD_Feed = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
     address public constant usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address public constant sUSDe = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
@@ -55,7 +55,7 @@ contract DeployScript is Script {
         AAVEHelper aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), ERC20(aWeETH), 1);
 
         // Contract linking
-        stkVault.addStrategy(address(myStrategy), 100);
+        stkVault.addStrategy(address(myStrategy), 1000000e18);
         stkVault.setEarnRatio(10000);
         stkVault.setRedemptionClaimer(_strategist);
 
@@ -82,14 +82,14 @@ contract DeployScript is Script {
             new AAVEHelper(address(myStrategy2), ERC20(PT_sUSDe), ERC20(usdc), ERC20(PT_ATOKEN_sUSDe), 8);
 
         // Contract linking
-        stkVault.addStrategy(address(myStrategy), 100);
-        stkVault.addStrategy(address(myStrategy2), 100);
+        stkVault.addStrategy(address(myStrategy), 1e18);
+        stkVault.addStrategy(address(myStrategy2), 1e18);
         stkVault.setEarnRatio(10000);
         stkVault.setRedemptionClaimer(_strategist);
 
         myStrategy.setSwapper(address(_tokenSwapper));
         myStrategy.setPendleHelper(address(pendleHelper));
-        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe_USD_FEED, address(0), 900);
+        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe, USDe_USD_FEED, 900);
         myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, address(0), 900);
         myStrategy.setStrategist(_strategist);
 

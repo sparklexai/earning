@@ -24,6 +24,8 @@ contract TestUtils is Test {
     uint256 constant MIN_SHARE = 10 ** 6;
     uint256 constant MAX_STRATEGIES_NUM = 8;
     EnumerableSet.AddressSet private _testUsers;
+    uint256 constant MAX_ETH_ALLOWED = 1000000 * Constants.ONE_ETHER;
+    uint256 constant MAX_USDC_ALLOWED = Constants.ONE_ETHER;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();
@@ -215,17 +217,15 @@ contract TestUtils is Test {
     }
 
     function _checkStrategyAllocations(address _vault) internal {
-        uint256 _totalAllocs;
         uint256 _activeCount;
         for (uint256 i = 0; i < MAX_STRATEGIES_NUM; i++) {
             address _strategy = SparkleXVault(_vault).allStrategies(i);
             if (_strategy != Constants.ZRO_ADDR) {
                 _activeCount++;
-                _totalAllocs += SparkleXVault(_vault).strategyAllocations(_strategy);
                 assertTrue(IStrategy(_strategy).totalAssets() >= IStrategy(_strategy).assetsInCollection());
+                assertTrue(IStrategy(_strategy).totalAssets() <= SparkleXVault(_vault).strategyAllocations(_strategy));
             }
         }
-        assertEq(_totalAllocs, SparkleXVault(_vault).strategiesAllocationSum());
         assertEq(_activeCount, SparkleXVault(_vault).activeStrategies());
     }
 

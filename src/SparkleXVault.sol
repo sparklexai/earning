@@ -29,7 +29,6 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
     uint256 public EARN_RATIO_BPS = 9900;
     uint256 public WITHDRAW_FEE_BPS = 10;
     uint256 public MANAGEMENT_FEE_BPS = 200;
-    uint256 public strategiesAllocationSum;
     ManagementFeeRecord public mgmtFee;
 
     struct ManagementFeeRecord {
@@ -38,6 +37,9 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
         uint256 lastUpdateTimestamp;
     }
 
+    /**
+     * @dev maximum allocation allowed for each strategy
+     */
     mapping(address => uint256) public strategyAllocations;
     address[MAX_ACTIVE_STRATEGY] public allStrategies;
     address public _redemptionClaimer;
@@ -123,10 +125,13 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
 
     function getAllocationAvailableForStrategy(address _strategyAddr) public view returns (uint256) {
         uint256 _strategyAlloc = strategyAllocations[_strategyAddr];
-        if (_strategyAlloc == 0) {
+        uint256 _currentTVL = IStrategy(_strategyAddr).totalAssets();
+        uint256 _maxAllowed = _strategyAlloc > _currentTVL ? (_strategyAlloc - _currentTVL) : 0;
+        if (_maxAllowed == 0) {
             return 0;
         }
-        return getAllocationAvailable() * _strategyAlloc / strategiesAllocationSum;
+        uint256 _maxAvailable = getAllocationAvailable();
+        return _maxAllowed < _maxAvailable ? _maxAllowed : _maxAvailable;
     }
 
     ///////////////////////////////
@@ -145,7 +150,6 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
         if (strategyAllocations[_strategy] == 0 || _newAlloc == 0) {
             revert Constants.WRONG_STRATEGY_ALLOC_UPDATE();
         }
-        strategiesAllocationSum = strategiesAllocationSum + _newAlloc - strategyAllocations[_strategy];
         strategyAllocations[_strategy] = _newAlloc;
         emit StrategyAllocationChanged(msg.sender, _strategy, _newAlloc);
     }
@@ -221,8 +225,6 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
             revert Constants.TOO_MANY_STRATEGIES();
         }
 
-        strategiesAllocationSum = strategiesAllocationSum + _allocation;
-
         strategyAllocations[_strategyAddr] = _allocation;
         activeStrategies = activeStrategies + 1;
 
@@ -246,8 +248,6 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
             revert Constants.STRATEGY_COLLECTION_IN_PROCESS();
         }
         IStrategy(_strategyAddr).collectAll(_extraAction);
-
-        strategiesAllocationSum = strategiesAllocationSum - _strategyAlloc;
 
         delete strategyAllocations[_strategyAddr];
         activeStrategies = activeStrategies - 1;

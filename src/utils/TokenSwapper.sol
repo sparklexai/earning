@@ -62,7 +62,6 @@ contract TokenSwapper is Ownable {
     ///////////////////////////////
     // stalecoins and related chainlink oracles - Ethereum mainnet
     ///////////////////////////////
-    address public constant sUSDe = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
     address public constant usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address public constant usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address public constant usds = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
@@ -70,7 +69,6 @@ contract TokenSwapper is Ownable {
     address public constant USR = 0x66a1E37c9b0eAddca17d3662D6c05F4DECf3e110;
     address public constant USDf = 0xFa2B947eEc368f42195f24F36d2aF29f7c24CeC2;
     address public constant GHO = 0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f;
-    address public constant sUSDe_FEED = 0xFF3BC18cCBd5999CE63E788A1c250a88626aD099;
     address public constant USDT_USD_Feed = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
     address public constant USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address public constant USDS_USD_Feed = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
@@ -91,7 +89,6 @@ contract TokenSwapper is Ownable {
         _tokenOracles[usdt] = USDT_USD_Feed;
         _tokenOracles[usdc] = USDC_USD_Feed;
         _tokenOracles[usds] = USDS_USD_Feed;
-        _tokenOracles[sUSDe] = sUSDe_FEED;
         _tokenOracles[usde] = USDe_USD_FEED;
         _tokenOracles[USR] = USR_USD_FEED;
         _tokenOracles[USDf] = USDf_USD_FEED;

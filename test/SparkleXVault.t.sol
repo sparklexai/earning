@@ -121,7 +121,7 @@ contract SparkleXVaultTest is TestUtils {
         DummyStrategy myStrategy1 = new DummyStrategy(wETH, address(stkVault));
         vm.startPrank(stkVOwner);
         stkVault.setEarnRatio(Constants.TOTAL_BPS);
-        stkVault.addStrategy(address(myStrategy1), 100);
+        stkVault.addStrategy(address(myStrategy1), MAX_ETH_ALLOWED);
         vm.stopPrank();
 
         vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
@@ -341,7 +341,7 @@ contract SparkleXVaultTest is TestUtils {
 
     function test_Strategy_Add_Remove(uint256 _testVal) public {
         // create the first strategy
-        uint256 _alloc1 = 100;
+        uint256 _alloc1 = MAX_ETH_ALLOWED;
         DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));
 
         // add the first strategy
@@ -384,7 +384,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         // create the second strategy
-        uint256 _alloc2 = 10;
+        uint256 _alloc2 = MAX_ETH_ALLOWED;
         DummyStrategy myStrategy2 = new DummyStrategy(wETH, address(stkVault));
 
         // add the second strategy
@@ -454,7 +454,7 @@ contract SparkleXVaultTest is TestUtils {
 
     function test_TotalAsset_After_RemoveStrategy(uint256 _testVal) public {
         // create the first strategy
-        uint256 _alloc1 = 100;
+        uint256 _alloc1 = MAX_ETH_ALLOWED;
         DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));
 
         // add the first strategy
@@ -475,7 +475,7 @@ contract SparkleXVaultTest is TestUtils {
         assertEq(_assetAllocated1, myStrategy.totalAssets());
 
         // create the second strategy
-        uint256 _alloc2 = 10;
+        uint256 _alloc2 = MAX_ETH_ALLOWED;
         DummyStrategy myStrategy2 = new DummyStrategy(wETH, address(stkVault));
 
         // add the second strategy
@@ -503,7 +503,7 @@ contract SparkleXVaultTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
 
         // create the third strategy
-        uint256 _alloc3 = 10;
+        uint256 _alloc3 = MAX_ETH_ALLOWED;
         DummyStrategy myStrategy3 = new DummyStrategy(wETH, address(stkVault));
 
         // add the third strategy
@@ -514,11 +514,19 @@ contract SparkleXVaultTest is TestUtils {
         vm.startPrank(stkVOwner);
         myStrategy3.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy3)), EMPTY_CALLDATA);
         vm.stopPrank();
+        uint256 _totalAssetsInStrategy3 = myStrategy3.totalAssets();
         assertEq(
             stkVault.totalAssets(),
-            myStrategy2.totalAssets() + myStrategy3.totalAssets() + ERC20(wETH).balanceOf(address(stkVault))
+            myStrategy2.totalAssets() + _totalAssetsInStrategy3 + ERC20(wETH).balanceOf(address(stkVault))
         );
+        assertTrue(_totalAssetsInStrategy3 > 0);
         _checkBasicInvariants(address(stkVault));
+
+        vm.startPrank(stkVOwner);
+        stkVault.updateStrategyAllocation(address(myStrategy3), 1);
+        vm.stopPrank();
+        assertEq(1, stkVault.strategyAllocations(address(myStrategy3)));
+        assertEq(0, stkVault.getAllocationAvailableForStrategy(address(myStrategy3)));
     }
 
     function test_AddStrategy_TooMany() public {
@@ -528,7 +536,7 @@ contract SparkleXVaultTest is TestUtils {
         for (uint256 i = 0; i < MAX_STRATEGIES_NUM; i++) {
             DummyStrategy myStrategy = new DummyStrategy(wETH, address(stkVault));
             vm.startPrank(stkVOwner);
-            stkVault.addStrategy(address(myStrategy), 100);
+            stkVault.addStrategy(address(myStrategy), MAX_ETH_ALLOWED);
             vm.stopPrank();
         }
         assertEq(MAX_STRATEGIES_NUM, stkVault.activeStrategies());
@@ -541,11 +549,11 @@ contract SparkleXVaultTest is TestUtils {
         vm.expectRevert(Constants.TOO_MANY_STRATEGIES.selector);
 
         vm.startPrank(stkVOwner);
-        stkVault.addStrategy(address(anewStrategy), 100);
+        stkVault.addStrategy(address(anewStrategy), MAX_ETH_ALLOWED);
         vm.stopPrank();
 
         // make the replacement
-        uint256 _oldAlloc = 100;
+        uint256 _oldAlloc = MAX_ETH_ALLOWED;
         vm.startPrank(stkVOwner);
         stkVault.removeStrategy(address(_replacedStrategy), EMPTY_CALLDATA);
         stkVault.addStrategy(address(anewStrategy), _oldAlloc);
@@ -555,7 +563,6 @@ contract SparkleXVaultTest is TestUtils {
         _checkBasicInvariants(address(stkVault));
 
         // update allocation for new strategy
-        uint256 _oldTotalAlloc = stkVault.strategiesAllocationSum();
         uint256 _newAlloc = 12345;
 
         vm.expectRevert(Constants.WRONG_STRATEGY_ALLOC_UPDATE.selector);
@@ -568,7 +575,6 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         assertEq(_newAlloc, stkVault.strategyAllocations(address(anewStrategy)));
-        assertEq(_oldTotalAlloc + _newAlloc - _oldAlloc, stkVault.strategiesAllocationSum());
     }
 
     function test_Vault_Pause() public {

@@ -65,7 +65,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         aaveHelperOwner = aaveHelper.owner();
 
         vm.startPrank(stkVOwner);
-        stkVault.addStrategy(address(myStrategy), 100);
+        stkVault.addStrategy(address(myStrategy), MAX_ETH_ALLOWED);
         vm.stopPrank();
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, withdrawNFTAdmin));
