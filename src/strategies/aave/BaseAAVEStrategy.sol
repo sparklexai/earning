@@ -192,9 +192,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         virtual
     {
         _prepareSupplyFromAsset(_assetAmount, _extraAction);
-        uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(
-            _capAmountByBalance(_asset, _assetAmount, false), _borrowAmount
-        );
+        uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(0, _borrowAmount);
 
         // use flashloan to leverage position
         (, address _flProvider,) = AAVEHelper(_aaveHelper).useSparkFlashloan();
