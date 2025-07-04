@@ -201,34 +201,6 @@ contract TokenSwapper is Ownable {
         }
     }
 
-    function queryXWithYInCurve(address inToken, address outToken, address singlePool, uint256 _minOut)
-        external
-        view
-        returns (uint256)
-    {
-        address[11] memory _route = [
-            inToken,
-            singlePool,
-            outToken,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR
-        ];
-        uint256[5] memory _swapParams = [uint256(1), uint256(0), uint256(1), uint256(1), uint256(2)];
-        uint256[5] memory _dummy = [uint256(0), uint256(0), uint256(0), uint256(0), uint256(0)];
-        uint256[5][5] memory _params = [_swapParams, _dummy, _dummy, _dummy, _dummy];
-        address[5] memory _pools =
-            [singlePool, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
-        address[5] memory _dummy_pools =
-            [Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
-        return curveRouter.get_dx(_route, _params, _minOut, _pools, _dummy_pools, _dummy_pools);
-    }
-
     ///////////////////////////////
     // Pendle swap related
     // check https://docs.pendle.finance/Developers/Contracts/PendleRouter#important-structs-in-pendlerouter

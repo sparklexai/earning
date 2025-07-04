@@ -310,9 +310,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         internal
         returns (uint256, uint256)
     {
-        uint256 _expectedIn = TokenSwapper(_swapper).queryXWithYInCurve(
-            address(_supplyToken), address(_borrowToken), weETHPool, _expectOutAmount
-        );
+        uint256 _expectedIn = _deduceExpectedInFromOutput(_expectOutAmount);
         uint256 _cappedIn = _capAmountByBalance(_supplyToken, _expectedIn, true);
         uint256 _actualOut = TokenSwapper(_swapper).swapInCurveTwoTokenPool(
             address(_supplyToken), address(_borrowToken), weETHPool, _cappedIn, _expectOutAmount
@@ -324,13 +322,16 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         internal
         returns (uint256, uint256)
     {
-        (int256 _weETHToETHPrice,, uint8 _priceDecimal) = TokenSwapper(_swapper).getPriceFromChainLink(weETH_ETH_FEED);
-        uint256 _expectedIn =
-            _expectOutAmount * Constants.convertDecimalToUnit(_priceDecimal) / uint256(_weETHToETHPrice);
+        uint256 _expectedIn = _deduceExpectedInFromOutput(_expectOutAmount);
         uint256 _cappedIn = _capAmountByBalance(_supplyToken, _expectedIn, true);
         uint256 _actualOut = TokenSwapper(_swapper).swapExactInWithUniswap(
             address(_supplyToken), address(_borrowToken), weETHUniPool, _cappedIn, _expectOutAmount
         );
         return (_cappedIn, _actualOut);
+    }
+
+    function _deduceExpectedInFromOutput(uint256 _expectOutAmount) internal view returns (uint256) {
+        (int256 _weETHToETHPrice,, uint8 _priceDecimal) = TokenSwapper(_swapper).getPriceFromChainLink(weETH_ETH_FEED);
+        return _expectOutAmount * Constants.convertDecimalToUnit(_priceDecimal) / uint256(_weETHToETHPrice);
     }
 }
