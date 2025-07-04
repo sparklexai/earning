@@ -34,10 +34,9 @@ contract EtherFiHelper is IERC721Receiver {
     // member storage
     ///////////////////////////////
     mapping(uint256 => uint256) public withdrawReqToSwapLoss;
-    uint256[MAX_ACTIVE_WITHDRAW] public withdrawRequestIDs;
+    mapping(address => uint256[MAX_ACTIVE_WITHDRAW]) public withdrawRequestIDs;
     mapping(uint256 => address) public withdrawRequsters;
     mapping(address => uint256) public withdrawCountsForRequster;
-    uint256 public activeWithdrawRequests;
 
     ///////////////////////////////
     // events
@@ -93,7 +92,7 @@ contract EtherFiHelper is IERC721Receiver {
      * @dev make a withdraw request to ether.fi with given weETH amount and record any swap loss during flashloan to prepare this request.
      */
     function requestWithdrawFromEtherFi(uint256 _toWithdrawWeETH, uint256 _swapLoss) external returns (uint256) {
-        if (activeWithdrawRequests >= MAX_ACTIVE_WITHDRAW) {
+        if (withdrawCountsForRequster[msg.sender] >= MAX_ACTIVE_WITHDRAW) {
             revert Constants.TOO_MANY_WITHDRAW_FOR_ETHERFI();
         }
 
@@ -130,28 +129,27 @@ contract EtherFiHelper is IERC721Receiver {
 
     function _updateWithdrawReqAccounting(address _requester, uint256 _req, uint256 _swapLoss, bool _claim) internal {
         uint256 _count = withdrawCountsForRequster[_requester];
+        uint256[MAX_ACTIVE_WITHDRAW] memory _idList = withdrawRequestIDs[_requester];
         if (_claim) {
             require(
                 withdrawRequsters[_req] != Constants.ZRO_ADDR && _requester == msg.sender,
                 "!invalid requester for withdraw claim"
             );
-            activeWithdrawRequests = activeWithdrawRequests > 0 ? activeWithdrawRequests - 1 : 0;
             for (uint256 i = 0; i < MAX_ACTIVE_WITHDRAW; i++) {
-                if (withdrawRequestIDs[i] == _req) {
+                if (_idList[i] == _req) {
                     delete withdrawReqToSwapLoss[_req];
                     delete withdrawRequsters[_req];
-                    withdrawRequestIDs[i] = 0;
+                    withdrawRequestIDs[_requester][i] = 0;
                     withdrawCountsForRequster[_requester] = _count - 1;
                     break;
                 }
             }
         } else {
-            activeWithdrawRequests = activeWithdrawRequests + 1;
             for (uint256 i = 0; i < MAX_ACTIVE_WITHDRAW; i++) {
-                if (withdrawRequestIDs[i] == 0) {
+                if (_idList[i] == 0) {
                     withdrawReqToSwapLoss[_req] = _swapLoss;
                     withdrawRequsters[_req] = _requester;
-                    withdrawRequestIDs[i] = _req;
+                    withdrawRequestIDs[_requester][i] = _req;
                     withdrawCountsForRequster[_requester] = _count + 1;
                     break;
                 }
@@ -164,14 +162,15 @@ contract EtherFiHelper is IERC721Receiver {
      */
     function getAllWithdrawRequests(address _requester) public view returns (uint256[][] memory) {
         uint256 _count = withdrawCountsForRequster[_requester];
-        if (_count == 0 || activeWithdrawRequests == 0) {
+        if (_count == 0) {
             return (new uint256[][](0));
         }
 
         uint256[][] memory _allReqs = new uint256[][](_count);
         uint256 cnt;
+        uint256[MAX_ACTIVE_WITHDRAW] memory _idList = withdrawRequestIDs[_requester];
         for (uint256 i = 0; i < MAX_ACTIVE_WITHDRAW; i++) {
-            uint256 _reqId = withdrawRequestIDs[i];
+            uint256 _reqId = _idList[i];
             if (_reqId != 0 && withdrawRequsters[_reqId] == _requester) {
                 uint256[] memory _activeReq = new uint256[](4);
                 _allReqs[cnt] = _activeReq;

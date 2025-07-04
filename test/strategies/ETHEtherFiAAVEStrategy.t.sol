@@ -612,10 +612,19 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         uint256[] memory _reqIds = new uint256[](_maxRedeemCount);
 
+        vm.startPrank(address(aWeETH));
+        ERC20(weETH).approve(address(etherfiHelper), type(uint256).max);
+        for (uint256 i = 0; i < _maxRedeemCount; i++) {
+            etherfiHelper.requestWithdrawFromEtherFi(Constants.ONE_GWEI, 0);
+        }
+        vm.stopPrank();
+        assertEq(_maxRedeemCount, etherfiHelper.withdrawCountsForRequster(address(aWeETH)));
+
         for (uint256 i = 0; i < _maxRedeemCount; i++) {
             _reqIds[i] = _activeWithdrawReqs[i][0];
             _finalizeWithdrawRequest(_reqIds[i]);
         }
+        assertEq(_maxRedeemCount, etherfiHelper.withdrawCountsForRequster(address(myStrategy)));
 
         vm.startPrank(strategist);
         myStrategy.claimAndRepay(_reqIds, _maxBorrow);
@@ -623,6 +632,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 0);
+        assertEq(0, etherfiHelper.withdrawCountsForRequster(address(myStrategy)));
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
         console.log("_debt:%d,_maxBorrow:%d,_debt2:%d", _debt, _maxBorrow, _debt2);
