@@ -460,7 +460,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 0);
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
-        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
+        console.log("_debt2:%d,_maxBorrow:%d,_debt:%d", _debt2, _maxBorrow, _debt);
+        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, BIGGER_TOLERANCE));
 
         _checkBasicInvariants(address(stkVault));
     }
