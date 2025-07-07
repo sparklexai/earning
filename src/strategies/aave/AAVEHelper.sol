@@ -104,7 +104,6 @@ contract AAVEHelper is Ownable {
 
         SafeERC20.forceApprove(_supplyToken, address(aavePool), type(uint256).max);
         SafeERC20.forceApprove(_borrowToken, address(aavePool), type(uint256).max);
-        SafeERC20.forceApprove(_supplyAToken, address(aavePool), type(uint256).max);
     }
 
     ///////////////////////////////

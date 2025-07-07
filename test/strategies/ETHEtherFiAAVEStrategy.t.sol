@@ -20,6 +20,7 @@ import {IPriceOracleGetter} from "../../interfaces/aave/IPriceOracleGetter.sol";
 import {TestUtils} from "../TestUtils.sol";
 import {Constants} from "../../src/utils/Constants.sol";
 import {DummyRewardDistributor} from "../mock/DummyRewardDistributor.sol";
+import {IVariableDebtToken} from "../../interfaces/aave/IVariableDebtToken.sol";
 
 // run this test with mainnet fork
 // forge test --fork-url <rpc_url> --match-path ETHEtherFiAAVEStrategyTest -vvv
@@ -41,6 +42,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
     address constant withdrawNFTAdmin = 0x0EF8fa4760Db8f5Cd4d993f3e3416f30f942D705;
     ERC20 aWeETH = ERC20(0xBdfa7b7893081B35Fb54027489e2Bc7A38275129);
+    address constant aWeETHDebt = 0xeA51d7853EEFb32b6ee06b1C12E6dcCA88Be0fFE;
 
     // events to check
     event DummyRewardClaimed(uint256 index, address account, uint256 amount);
@@ -93,11 +95,26 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.setEtherFiHelper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
+        address _user1 = TestUtils._getSugarUser();
+        AAVEHelper aaveHelper2 = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), aWeETH, 1);
+        vm.startPrank(strategyOwner);
+        myStrategy.setEtherFiHelper(_user1);
+        myStrategy.setAAVEHelper(address(aaveHelper2));
+        vm.stopPrank();
+        assertEq(ERC20(wETH).allowance(address(myStrategy), _user1), type(uint256).max);
+        assertEq(ERC20(weETH).allowance(address(myStrategy), address(aaveHelper2)), type(uint256).max);
+        assertEq(
+            IVariableDebtToken(aWeETHDebt).borrowAllowance(address(myStrategy), address(aaveHelper2)), type(uint256).max
+        );
+
         vm.startPrank(strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setEtherFiHelper(address(etherfiHelper));
         myStrategy.setAAVEHelper(address(aaveHelper));
         vm.stopPrank();
+        assertEq(ERC20(wETH).allowance(address(myStrategy), _user1), 0);
+        assertEq(ERC20(weETH).allowance(address(myStrategy), address(aaveHelper2)), 0);
+        assertEq(IVariableDebtToken(aWeETHDebt).borrowAllowance(address(myStrategy), address(aaveHelper2)), 0);
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         vm.startPrank(strategyOwner);

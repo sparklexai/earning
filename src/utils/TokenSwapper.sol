@@ -101,6 +101,10 @@ contract TokenSwapper is Ownable {
         }
     }
 
+    function _revokeTokenApproval(address _token, address _spender) internal {
+        SafeERC20.forceApprove(ERC20(_token), _spender, 0);
+    }
+
     function setSlippage(uint256 _slippage) external onlyOwner {
         if (_slippage == 0 || _slippage >= Constants.TOTAL_BPS) {
             revert Constants.INVALID_BPS_TO_SET();
@@ -133,6 +137,7 @@ contract TokenSwapper is Ownable {
         _approveTokenToDex(inToken, address(uniswapV3Router));
         uint256 _outActual = uniswapV3Router.exactInputSingle(_inputSingle);
         emit SwapInUniswap(inToken, outToken, msg.sender, _inAmount, _outActual);
+        _revokeTokenApproval(inToken, address(uniswapV3Router));
         return _outActual;
     }
 
@@ -186,6 +191,7 @@ contract TokenSwapper is Ownable {
         _approveTokenToDex(inToken, address(curveRouter));
         uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _dy, _pools, msg.sender);
         emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
+        _revokeTokenApproval(inToken, address(curveRouter));
         return _out;
     }
 
@@ -274,6 +280,7 @@ contract TokenSwapper is Ownable {
         if (applySlippageMargin(_actualOut) < _minOut) {
             revert Constants.SWAP_OUT_TOO_SMALL();
         }
+        _revokeTokenApproval(_inputToken, _router);
         return _actualOut;
     }
 

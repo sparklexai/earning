@@ -164,6 +164,10 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         }
     }
 
+    function _revokeTokenApproval(address _token, address _spender) internal {
+        SafeERC20.forceApprove(ERC20(_token), _spender, 0);
+    }
+
     function manageCall(address target, bytes calldata data, uint256 value)
         external
         onlyOwner

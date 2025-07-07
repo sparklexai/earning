@@ -57,7 +57,14 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         if (_newHelper == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
+
+        if (_etherfiHelper != Constants.ZRO_ADDR) {
+            _revokeTokenApproval(wETH, _etherfiHelper);
+            _revokeTokenApproval(address(weETH), _etherfiHelper);
+        }
+
         emit EtherFiHelperChanged(_etherfiHelper, _newHelper);
+
         _etherfiHelper = payable(_newHelper);
         _approveToken(wETH, _etherfiHelper);
         _approveToken(address(weETH), _etherfiHelper);

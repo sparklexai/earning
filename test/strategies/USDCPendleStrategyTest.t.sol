@@ -703,6 +703,29 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         assertEq(1, PendleStrategy(myStrategy).getActivePTs().length);
     }
 
+    function test_TokenApprovalRevoke_Swapper(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetAmount, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        DummyDEXRouter mockRouter2 = new DummyDEXRouter();
+        _prepareSwapForMockRouter(mockRouter2, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+        bytes memory _callDataZap = _generateSwapCalldataForBuy(usdcWhale, address(MARKET_ADDR1), 0, magicUSDCAmount);
+
+        assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(usdcWhale));
+        vm.startPrank(usdcWhale);
+        ERC20(usdc).approve(address(swapper), type(uint256).max);
+        swapper.swapWithPendleRouter(address(mockRouter2), usdc, address(PT_ADDR1), magicUSDCAmount, 0, _callDataZap);
+        vm.stopPrank();
+        assertEq(0, ERC20(usdc).allowance(address(swapper), address(mockRouter2)));
+        assertTrue(ERC20(address(PT_ADDR1)).balanceOf(usdcWhale) > 0);
+    }
+
     function _zapInWithPendlePT(
         address _assetToken,
         address _strategy,
