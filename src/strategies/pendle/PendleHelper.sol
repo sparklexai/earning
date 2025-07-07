@@ -60,6 +60,10 @@ contract PendleHelper {
         } else if (!_beforeExpire && !IPMarketV3(_ptMarket).isExpired()) {
             revert Constants.PT_NOT_MATURED();
         }
+        (, IPPrincipalToken _ptFromMarket,) = IPMarketV3(_ptMarket).readTokens();
+        if (address(_ptFromMarket) != _ptAddress) {
+            revert Constants.PT_NOT_MATCH_MARKET();
+        }
     }
 
     /**

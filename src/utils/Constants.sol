@@ -63,6 +63,7 @@ library Constants {
     error INVALID_HELPER_CALLER();
     error ONLY_FOR_PAUSE_COMMANDER();
     error VAULT_ALREADY_PAUSED();
+    error INVALID_TOKEN_INDEX_IN_CURVE();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();
@@ -93,4 +94,5 @@ library Constants {
     error MAX_PT_EXCEEDED();
     error PT_STILL_IN_USE();
     error ZERO_TO_SWAP_IN_PENDLE();
+    error PT_NOT_MATCH_MARKET();
 }

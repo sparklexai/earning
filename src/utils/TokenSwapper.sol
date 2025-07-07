@@ -182,14 +182,9 @@ contract TokenSwapper is Ownable {
         address[5] memory _pools =
             [singlePool, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
 
-        uint256 _dy = _minOut;
-        if (_dy == 0) {
-            _dy = curveRouter.get_dy(_route, _params, _inAmount, _pools) * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS;
-        }
-
         SafeERC20.safeTransferFrom(ERC20(inToken), msg.sender, address(this), _inAmount);
         _approveTokenToDex(inToken, address(curveRouter));
-        uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _dy, _pools, msg.sender);
+        uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _minOut, _pools, msg.sender);
         emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
         _revokeTokenApproval(inToken, address(curveRouter));
         return _out;
@@ -203,6 +198,9 @@ contract TokenSwapper is Ownable {
         if (ICurvePool(_twoTokenPool).coins(0) == _token) {
             return 0;
         } else {
+            if (ICurvePool(_twoTokenPool).coins(1) != _token) {
+                revert Constants.INVALID_TOKEN_INDEX_IN_CURVE();
+            }
             return 1;
         }
     }
@@ -319,8 +317,7 @@ contract TokenSwapper is Ownable {
         // 1:1 value at maturity
         uint256 _ptPriceInSY =
             IPMarketV3(_ptMarket).isExpired() ? Constants.ONE_ETHER : getPTPriceInSYFromPendle(_ptMarket, _twapSeconds);
-        uint256 _pt2UnderlyingRateScaled =
-            _ptPriceInSY * _syToUnderlyingRate * Constants.ONE_ETHER / (Constants.ONE_ETHER * Constants.ONE_ETHER);
+        uint256 _pt2UnderlyingRateScaled = _ptPriceInSY * _syToUnderlyingRate / Constants.ONE_ETHER;
 
         if (_underlyingYield == _assetToken) {
             return _pt2UnderlyingRateScaled;

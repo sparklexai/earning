@@ -13,6 +13,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 interface ISparkleXVault {
     function getAllocationAvailableForStrategy(address _strategyAddr) external view returns (uint256);
+    function asset() external view returns (address);
 }
 
 abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
@@ -50,6 +51,10 @@ abstract contract BaseSparkleXStrategy is IStrategy, Ownable {
         _asset = token;
         _vault = vaultAddr;
         _strategist = msg.sender;
+
+        if (ISparkleXVault(_vault).asset() != address(token)) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
 
         emit StrategyCreated(msg.sender, _vault, address(token));
     }

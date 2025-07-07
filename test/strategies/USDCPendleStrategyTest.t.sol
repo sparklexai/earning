@@ -606,6 +606,8 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         pendleHelper._checkValidityWithMarket(usdc, Constants.ZRO_ADDR, true);
         vm.expectRevert(Constants.PT_NOT_MATURED.selector);
         pendleHelper._checkValidityWithMarket(usdc, address(MARKET_ADDR1), false);
+        vm.expectRevert(Constants.PT_NOT_MATCH_MARKET.selector);
+        pendleHelper._checkValidityWithMarket(usdc, address(MARKET_ADDR1), true);
 
         // forward to market expire
         vm.warp(block.timestamp + Constants.ONE_YEAR);

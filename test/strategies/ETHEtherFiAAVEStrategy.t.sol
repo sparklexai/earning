@@ -877,6 +877,12 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
         (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(true);
         assertTrue(_debtInAsset > 0);
+
+        // wETH is coins(2) in curve tricrypto pool
+        vm.expectRevert(Constants.INVALID_TOKEN_INDEX_IN_CURVE.selector);
+        vm.startPrank(_user);
+        swapper.swapInCurveTwoTokenPool(wETH, USDT, 0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4, Constants.ONE_ETHER, 0);
+        vm.stopPrank();
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {

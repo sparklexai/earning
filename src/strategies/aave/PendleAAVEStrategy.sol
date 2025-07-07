@@ -183,7 +183,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
             revert Constants.TOO_MUCH_SUPPLY_TO_REDEEM();
         }
 
-        _supplyAmount = _withdrawCollateralFromAAVE(_supplyAmount > _margin ? _margin : _supplyAmount);
+        _supplyAmount = _withdrawCollateralFromAAVE(_supplyAmount);
         uint256 _ptAmount = _capAmountByBalance(AAVEHelper(_aaveHelper)._supplyToken(), _supplyAmount, false);
         uint256 _repaidDebt;
         if (_extraAction.length > 0) {

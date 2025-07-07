@@ -132,7 +132,7 @@ contract EtherFiHelper is IERC721Receiver {
         uint256[MAX_ACTIVE_WITHDRAW] memory _idList = withdrawRequestIDs[_requester];
         if (_claim) {
             require(
-                withdrawRequsters[_req] != Constants.ZRO_ADDR && _requester == msg.sender,
+                withdrawRequsters[_req] == _requester && _requester == msg.sender,
                 "!invalid requester for withdraw claim"
             );
             for (uint256 i = 0; i < MAX_ACTIVE_WITHDRAW; i++) {
@@ -173,13 +173,16 @@ contract EtherFiHelper is IERC721Receiver {
             uint256 _reqId = _idList[i];
             if (_reqId != 0 && withdrawRequsters[_reqId] == _requester) {
                 uint256[] memory _activeReq = new uint256[](4);
-                _allReqs[cnt] = _activeReq;
 
                 _activeReq[0] = _reqId;
                 IWithdrawRequestNFT.WithdrawRequest memory _request = etherfiWithdrawNFT.getRequest(_activeReq[0]);
                 _activeReq[1] = _request.amountOfEEth;
                 _activeReq[2] = withdrawReqToSwapLoss[_activeReq[0]];
                 _activeReq[3] = _request.feeGwei * Constants.ONE_GWEI;
+
+                // assign to result after all values initialized
+                _allReqs[cnt] = _activeReq;
+
                 cnt = cnt + 1;
                 if (cnt == _count) {
                     break;

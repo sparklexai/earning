@@ -17,6 +17,7 @@ contract TestUtils is Test {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     bytes32 internal nextUser = keccak256(abi.encodePacked("user address"));
     uint256 constant wETHVal = 10000 ether;
     uint256 constant COMP_TOLERANCE = 10000;
