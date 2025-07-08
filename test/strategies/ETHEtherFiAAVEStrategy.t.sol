@@ -663,7 +663,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user1 = TestUtils._getSugarUser();
         address _user2 = TestUtils._getSugarUser();
         address _user3 = TestUtils._getSugarUser();
-        uint256 _timeElapsed = Constants.ONE_YEAR / 12;
+        uint256 _timeElapsed = ONE_DAY_HEARTBEAT / 12;
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user1
         (uint256 _assetVal1, uint256 _share1) =

@@ -27,6 +27,7 @@ contract TestUtils is Test {
     EnumerableSet.AddressSet private _testUsers;
     uint256 constant MAX_ETH_ALLOWED = 1000000 * Constants.ONE_ETHER;
     uint256 constant MAX_USDC_ALLOWED = Constants.ONE_ETHER;
+    uint32 constant ONE_DAY_HEARTBEAT = 86400;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();

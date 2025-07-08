@@ -74,7 +74,7 @@ contract DeployScript is Script {
 
         // Contract creation
         SparkleXVault stkVault = new SparkleXVault(ERC20(usdc), "SparkleX-USDC-Vault", "spUSDC");
-        PendleStrategy myStrategy = new PendleStrategy(ERC20(usdc), address(stkVault), USDC_USD_Feed);
+        PendleStrategy myStrategy = new PendleStrategy(ERC20(usdc), address(stkVault), USDC_USD_Feed, 86400);
         PendleHelper pendleHelper = new PendleHelper(address(myStrategy), pendleRouteV4, _tokenSwapper);
         PendleAAVEStrategy myStrategy2 = new PendleAAVEStrategy(usdc, address(stkVault));
         PendleHelper pendleHelper2 = new PendleHelper(address(myStrategy2), pendleRouteV4, _tokenSwapper);
@@ -89,8 +89,8 @@ contract DeployScript is Script {
 
         myStrategy.setSwapper(address(_tokenSwapper));
         myStrategy.setPendleHelper(address(pendleHelper));
-        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe, USDe_USD_FEED, 900);
-        myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, address(0), 900);
+        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe, USDe_USD_FEED, 900, 86400);
+        myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, address(0), 900, 86400);
         myStrategy.setStrategist(_strategist);
 
         myStrategy2.setSwapper(address(_tokenSwapper));

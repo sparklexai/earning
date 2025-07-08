@@ -88,7 +88,11 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
     ///////////////////////////////
     // earn with Pendle: Trading Functions
     ///////////////////////////////
-    function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
+    function getPTPriceInAssetWithHeartbeat(address _assetToken, address ptToken, uint32 _heartbeat)
+        public
+        view
+        returns (uint256)
+    {
         address _syToken = IPPrincipalToken(ptToken).SY();
         address _yieldToken = IStandardizedYield(_syToken).yieldToken();
         address _yieldOracle = TokenSwapper(_swapper).getAssetOracle(_yieldToken);
@@ -97,6 +101,7 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
             TokenSwapper(_swapper).getAssetOracle(_assetToken),
             address(pendleMarket),
             TokenSwapper(_swapper).PENDLE_ORACLE_TWAP(),
+            _heartbeat,
             _yieldToken,
             (_yieldOracle == Constants.ZRO_ADDR ? _yieldToken : _yieldOracle),
             (
@@ -106,6 +111,10 @@ contract PendleAAVEStrategy is BaseAAVEStrategy {
             ),
             Constants.ONE_ETHER
         );
+    }
+
+    function getPTPriceInAsset(address _assetToken, address ptToken) public view returns (uint256) {
+        return getPTPriceInAssetWithHeartbeat(_assetToken, ptToken, TokenSwapper(_swapper).DEFAULT_Heartbeat());
     }
 
     /**

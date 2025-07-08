@@ -45,6 +45,7 @@ contract TokenSwapper is Ownable {
      */
     uint256 public SWAP_SLIPPAGE_BPS = 9920;
     uint32 public constant PENDLE_ORACLE_TWAP = 900;
+    uint32 public constant DEFAULT_Heartbeat = 86400;
     mapping(address => address) public _tokenOracles;
 
     ///////////////////////////////
@@ -283,8 +284,16 @@ contract TokenSwapper is Ownable {
     }
 
     function getPriceFromChainLink(address _aggregator) public view returns (int256, uint256, uint8) {
+        return getPriceFromChainLinkWithHeartbeat(_aggregator, DEFAULT_Heartbeat);
+    }
+
+    function getPriceFromChainLinkWithHeartbeat(address _aggregator, uint32 _heartbeat)
+        public
+        view
+        returns (int256, uint256, uint8)
+    {
         (uint80 roundId, int256 answer,, uint256 updatedAt,) = IOracleAggregatorV3(_aggregator).latestRoundData();
-        if (roundId == 0 || answer <= 0) {
+        if (roundId == 0 || answer <= 0 || (block.timestamp - updatedAt) > _heartbeat) {
             revert Constants.WRONG_PRICE_FROM_ORACLE();
         }
         return (answer, updatedAt, IOracleAggregatorV3(_aggregator).decimals());
@@ -309,6 +318,7 @@ contract TokenSwapper is Ownable {
         address _assetOracle,
         address _ptMarket,
         uint32 _twapSeconds,
+        uint32 _heartbeat,
         address _underlyingYield,
         address _underlyingYieldOracle,
         address _intermediateOracle,
@@ -324,22 +334,25 @@ contract TokenSwapper is Ownable {
         }
 
         // ensure asset and underlying oracles return prices in same base unit like USD
-        (uint256 _uP, uint256 _uD) = _getUnderlyingPrice(_underlyingYield, _underlyingYieldOracle, _intermediateOracle);
-        (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLink(_assetOracle);
+        (uint256 _uP, uint256 _uD) =
+            _getUnderlyingPrice(_underlyingYield, _underlyingYieldOracle, _intermediateOracle, _heartbeat);
+        (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLinkWithHeartbeat(_assetOracle, _heartbeat);
         return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * _uP
             / (_uD * uint256(_assetPrice));
     }
 
-    function _getUnderlyingPrice(address _underlyingYield, address _underlyingYieldOracle, address _intermediateOracle)
-        internal
-        view
-        returns (uint256, uint256)
-    {
+    function _getUnderlyingPrice(
+        address _underlyingYield,
+        address _underlyingYieldOracle,
+        address _intermediateOracle,
+        uint32 _heartbeat
+    ) internal view returns (uint256, uint256) {
         uint256 _uP;
         uint256 _uD;
 
         if (_underlyingYield != _underlyingYieldOracle) {
-            (int256 _underlyingPrice,, uint8 _decimal) = getPriceFromChainLink(_underlyingYieldOracle);
+            (int256 _underlyingPrice,, uint8 _decimal) =
+                getPriceFromChainLinkWithHeartbeat(_underlyingYieldOracle, _heartbeat);
             _uP = uint256(_underlyingPrice);
             _uD = Constants.convertDecimalToUnit(_decimal);
         } else {
@@ -349,7 +362,8 @@ contract TokenSwapper is Ownable {
         }
 
         if (_intermediateOracle != Constants.ZRO_ADDR) {
-            (int256 _intermediatePrice,, uint8 _decimalIntermediate) = getPriceFromChainLink(_intermediateOracle);
+            (int256 _intermediatePrice,, uint8 _decimalIntermediate) =
+                getPriceFromChainLinkWithHeartbeat(_intermediateOracle, _heartbeat);
             _uP = _uP * uint256(_intermediatePrice) / _uD;
             _uD = Constants.convertDecimalToUnit(_decimalIntermediate);
         }

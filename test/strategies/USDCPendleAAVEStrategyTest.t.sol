@@ -699,7 +699,9 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         assertEq(_shorterTWAPPrice, _longerTWAPPrice);
 
         // test price with underlying as ERC4626
-        uint256 _eUSDePrice = PendleAAVEStrategy(myStrategy).getPTPriceInAsset(usdc, address(PT_ADDR4));
+        uint256 _eUSDePrice = PendleAAVEStrategy(myStrategy).getPTPriceInAssetWithHeartbeat(
+            usdc, address(PT_ADDR4), uint32(Constants.ONE_YEAR * 2)
+        );
         assertTrue(_assertApproximateEq(_eUSDePrice, Constants.ONE_ETHER, BIGGER_TOLERANCE));
     }
 
