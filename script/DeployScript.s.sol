@@ -51,6 +51,7 @@ contract DeployScript is Script {
         SparkleXVault stkVault = new SparkleXVault(ERC20(wETH), "SparkleX-ETH-Vault", "spETH");
         ETHEtherFiAAVEStrategy myStrategy = new ETHEtherFiAAVEStrategy(address(stkVault));
         TokenSwapper tokenSwapper = new TokenSwapper();
+        tokenSwapper.setSlippage(9900);
         EtherFiHelper etherFiHelper = new EtherFiHelper();
         AAVEHelper aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), ERC20(aWeETH), 1);
 
@@ -63,6 +64,7 @@ contract DeployScript is Script {
         myStrategy.setEtherFiHelper(address(etherFiHelper));
         myStrategy.setAAVEHelper(address(aaveHelper));
         myStrategy.setStrategist(_strategist);
+        tokenSwapper.setWhitelist(address(myStrategy), true);
 
         vm.stopBroadcast();
 
@@ -92,12 +94,14 @@ contract DeployScript is Script {
         myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe, USDe_USD_FEED, 900, 86400);
         myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, address(0), 900, 86400);
         myStrategy.setStrategist(_strategist);
+        TokenSwapper(_tokenSwapper).setWhitelist(address(pendleHelper), true);
 
         myStrategy2.setSwapper(address(_tokenSwapper));
         myStrategy2.setPendleHelper(address(pendleHelper2));
         myStrategy2.setAAVEHelper(address(aaveHelper));
         myStrategy2.setPendleMarket(MARKET_sUSDe);
         myStrategy2.setStrategist(_strategist);
+        TokenSwapper(_tokenSwapper).setWhitelist(address(pendleHelper2), true);
 
         vm.stopBroadcast();
     }

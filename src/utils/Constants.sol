@@ -64,6 +64,7 @@ library Constants {
     error ONLY_FOR_PAUSE_COMMANDER();
     error VAULT_ALREADY_PAUSED();
     error INVALID_TOKEN_INDEX_IN_CURVE();
+    error ONLY_FOR_WHITELISTED_CALLER();
 
     // errors in AAVE related strategy
     error FAIL_TO_REPAY_FLASHLOAN_LEVERAGE();

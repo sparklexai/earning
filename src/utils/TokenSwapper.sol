@@ -47,6 +47,7 @@ contract TokenSwapper is Ownable {
     uint32 public constant PENDLE_ORACLE_TWAP = 900;
     uint32 public constant DEFAULT_Heartbeat = 86400;
     mapping(address => address) public _tokenOracles;
+    mapping(address => bool) public whitelistCaller;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -85,6 +86,7 @@ contract TokenSwapper is Ownable {
     event SwapInUniswap(
         address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out
     );
+    event CallerWhitelisted(address indexed _caller, bool _whitelisted);
 
     constructor() Ownable(msg.sender) {
         _tokenOracles[usdt] = USDT_USD_Feed;
@@ -113,6 +115,24 @@ contract TokenSwapper is Ownable {
         SWAP_SLIPPAGE_BPS = _slippage;
     }
 
+    function setWhitelist(address _caller, bool _whitelisted) external onlyOwner {
+        if (_caller == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
+        whitelistCaller[_caller] = _whitelisted;
+        emit CallerWhitelisted(_caller, _whitelisted);
+    }
+
+    /**
+     * @dev allow only called by whitelisted caller.
+     */
+    modifier onlyWhitelistedCaller() {
+        if (!whitelistCaller[msg.sender]) {
+            revert Constants.ONLY_FOR_WHITELISTED_CALLER();
+        }
+        _;
+    }
+
     ///////////////////////////////
     // Uniswap V3 related:
     // https://docs.uniswap.org/contracts/v3/guides/swaps/single-swaps
@@ -123,7 +143,7 @@ contract TokenSwapper is Ownable {
         address singlePool,
         uint256 _inAmount,
         uint256 _minOut
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         ISwapRouter.ExactInputSingleParams memory _inputSingle = ISwapRouter.ExactInputSingleParams({
             tokenIn: inToken,
             tokenOut: outToken,
@@ -156,7 +176,7 @@ contract TokenSwapper is Ownable {
         address singlePool,
         uint256 _inAmount,
         uint256 _minOut
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         address[11] memory _route = [
             inToken,
             singlePool,
@@ -224,7 +244,7 @@ contract TokenSwapper is Ownable {
         uint256 _inAmount,
         uint256 _minOut,
         bytes calldata _swapCallData
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         address _receiverDecoded = _getReceiverFromPendleCalldata(_swapCallData);
         if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {
             revert Constants.WRONG_SWAP_RECEIVER();
@@ -244,7 +264,7 @@ contract TokenSwapper is Ownable {
         uint256 _inAmount,
         uint256 _minOut,
         bytes calldata _swapCallData
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         (,,, bytes memory _reflectCall) = abi.decode(_swapCallData[4:], (address, bytes, bytes, bytes));
         address _receiverDecoded = this._getReceiverFromPendleCalldata(_reflectCall);
         if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {

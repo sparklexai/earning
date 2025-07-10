@@ -175,7 +175,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         assertEq(_share, stkVault.balanceOf(_user));
 
-        uint256 _totalAssets = stkVault.totalAssets();
+        uint256 _totalAssets = ERC20(wETH).balanceOf(address(stkVault));
         assertEq(wETHVal + _generousAsset, _totalAssets);
 
         // accumulate fee
@@ -248,6 +248,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         address payable _feeRecipient = _getNextUserAddress();
+        assertEq(0, ERC20(wETH).balanceOf(_feeRecipient));
         vm.startPrank(stkVOwner);
         stkVault.setFeeRecipient(_feeRecipient);
         stkVault.claimManagementFee();
@@ -299,7 +300,6 @@ contract SparkleXVaultTest is TestUtils {
 
         // third accumulation
         vm.warp(block.timestamp + Constants.ONE_YEAR);
-        (uint256 _feeExpected,) = stkVault.previewManagementFeeAccumulated(stkVault.totalAssets(), block.timestamp);
         vm.startPrank(_user);
         stkVault.requestRedemption(stkVault.balanceOf(_user));
         myStrategy1.collectAll(EMPTY_CALLDATA);

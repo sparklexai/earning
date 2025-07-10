@@ -310,7 +310,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
         }
 
         _feeRecord.feesAccumulated = 0;
-        SafeERC20.safeTransferFrom(ERC20(asset()), address(this), _feeRecipient, _feeToClaim);
+        SafeERC20.safeTransfer(ERC20(asset()), _feeRecipient, _feeToClaim);
 
         emit ManagementFeeClaimed(_feeRecipient, _feeToClaim);
     }
@@ -363,7 +363,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
         return _currentTotalAssets - newFee - mgmtFee.feesAccumulated;
     }
 
-    function _rawTotalAssets() internal view returns (uint256) {
+    function _rawTotalAssets() public view returns (uint256) {
         uint256 _residue = ERC20(asset()).balanceOf(address(this));
         uint256 _total;
         for (uint256 i = 0; i < MAX_ACTIVE_STRATEGY; i++) {

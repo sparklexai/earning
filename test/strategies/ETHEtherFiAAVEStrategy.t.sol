@@ -65,6 +65,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         etherfiHelper = new EtherFiHelper();
         aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), aWeETH, 1);
         aaveHelperOwner = aaveHelper.owner();
+        swapper.setWhitelist(address(myStrategy), true);
 
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), MAX_ETH_ALLOWED);
@@ -380,6 +381,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.startPrank(_user);
         myStrategy.invest(0, _redemptionShare * 2, EMPTY_CALLDATA);
         vm.stopPrank();
+
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
 
         vm.startPrank(strategist);
         myStrategy.invest(0, _redemptionShare * 2, EMPTY_CALLDATA);
@@ -879,7 +882,14 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertTrue(_debtInAsset > 0);
 
         // wETH is coins(2) in curve tricrypto pool
+        TestUtils._setTokenSwapperWhitelist(address(swapper), _user, true);
         vm.expectRevert(Constants.INVALID_TOKEN_INDEX_IN_CURVE.selector);
+        vm.startPrank(_user);
+        swapper.swapInCurveTwoTokenPool(wETH, USDT, 0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4, Constants.ONE_ETHER, 0);
+        vm.stopPrank();
+
+        TestUtils._setTokenSwapperWhitelist(address(swapper), _user, false);
+        vm.expectRevert(Constants.ONLY_FOR_WHITELISTED_CALLER.selector);
         vm.startPrank(_user);
         swapper.swapInCurveTwoTokenPool(wETH, USDT, 0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4, Constants.ONE_ETHER, 0);
         vm.stopPrank();

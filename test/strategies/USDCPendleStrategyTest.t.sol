@@ -166,6 +166,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         bytes memory EMPTY_CALLDATA;
 
         bytes memory _dummyCallData = abi.encodeWithSelector(ERC20.transfer.selector, usdc, 0);
+        TestUtils._setTokenSwapperWhitelist(address(swapper), address(_dummyPendleAaveStrategy), true);
         vm.expectRevert(Constants.WRONG_SWAP_RECEIVER.selector);
         vm.startPrank(address(_dummyPendleAaveStrategy));
         swapper.swapWithPendleRouter(address(mockRouter), usdc, address(PT_ADDR1), magicUSDCAmount, 0, _dummyCallData);
@@ -261,6 +262,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
         assertEq(TARGET_SELECTOR_PENDLE, bytes4(_callData)); //(_callData[:4])
 
+        TestUtils._setTokenSwapperWhitelist(address(swapper), usdcWhale, true);
         vm.startPrank(usdcWhale);
         ERC20(usdc).approve(address(swapper), type(uint256).max);
         uint256 ptOut =
@@ -323,6 +325,14 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         // forward to market expire
         vm.warp(block.timestamp + Constants.ONE_YEAR);
         assertTrue(MARKET_ADDR2.isExpired());
+
+        assertEq(0, ERC20(usdc).balanceOf(stkVault._feeRecipient()));
+        vm.startPrank(stkVOwner);
+        stkVault.accumulateManagementFee();
+        stkVault.claimManagementFee();
+        vm.stopPrank();
+        assertTrue(ERC20(usdc).balanceOf(stkVault._feeRecipient()) > 0);
+
         _redeemAfterPendlePTExpire(usdc, myStrategy, address(PT_ADDR2), YT_ADDR2, magicPTAmount);
         _checkBasicInvariants(address(stkVault));
         _totalAssetsInStrategy = IStrategy(myStrategy).totalAssets();
@@ -738,6 +748,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
         bytes memory _callDataZap = _generateSwapCalldataForBuy(usdcWhale, address(MARKET_ADDR1), 0, magicUSDCAmount);
 
         assertEq(0, ERC20(address(PT_ADDR1)).balanceOf(usdcWhale));
+        TestUtils._setTokenSwapperWhitelist(address(swapper), usdcWhale, true);
         vm.startPrank(usdcWhale);
         ERC20(usdc).approve(address(swapper), type(uint256).max);
         swapper.swapWithPendleRouter(address(mockRouter2), usdc, address(PT_ADDR1), magicUSDCAmount, 0, _callDataZap);
@@ -871,6 +882,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
 
         address _routerAddr = (_useMockRouter ? address(mockRouter) : pendleRouterV4);
         pendleHelper = new PendleHelper(_deployedStrategy, _routerAddr, address(swapper));
+        swapper.setWhitelist(address(pendleHelper), true);
 
         vm.startPrank(PendleStrategy(_deployedStrategy).owner());
         PendleStrategy(_deployedStrategy).setSwapper(address(swapper));

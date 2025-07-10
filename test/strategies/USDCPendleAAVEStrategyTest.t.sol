@@ -764,6 +764,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
 
         address _routerAddr = (_useMockRouter ? address(mockRouter) : pendleRouterV4);
         pendleHelper = new PendleHelper(_deployedStrategy, _routerAddr, address(swapper));
+        swapper.setWhitelist(address(pendleHelper), true);
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         vm.startPrank(strategyOwner);
