@@ -175,7 +175,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         assertEq(_share, stkVault.balanceOf(_user));
 
-        uint256 _totalAssets = stkVault.totalAssets();
+        uint256 _totalAssets = ERC20(wETH).balanceOf(address(stkVault));
         assertEq(wETHVal + _generousAsset, _totalAssets);
 
         // accumulate fee
@@ -248,6 +248,7 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
 
         address payable _feeRecipient = _getNextUserAddress();
+        assertEq(0, ERC20(wETH).balanceOf(_feeRecipient));
         vm.startPrank(stkVOwner);
         stkVault.setFeeRecipient(_feeRecipient);
         stkVault.claimManagementFee();
@@ -263,6 +264,81 @@ contract SparkleXVaultTest is TestUtils {
         vm.stopPrank();
         Vm.Log[] memory logEntries = vm.getRecordedLogs();
         assertEq(0, logEntries.length);
+    }
+
+    function test_AccumulateManagementFee(uint256 _testVal) public {
+        uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
+
+        DummyStrategy myStrategy1 = new DummyStrategy(wETH, address(stkVault));
+        vm.startPrank(stkVOwner);
+        stkVault.addStrategy(address(myStrategy1), MAX_ETH_ALLOWED);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        (uint256 _fee,,) = stkVault.mgmtFee();
+        assertEq(_fee, 0);
+
+        // first accumulation
+        address _user = TestUtils._getSugarUser();
+
+        TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 10 ether, wETHVal);
+
+        (_fee,,) = stkVault.mgmtFee();
+        assertTrue(_fee > 0);
+
+        bytes memory EMPTY_CALLDATA;
+        myStrategy1.allocate(stkVault.getAllocationAvailableForStrategy(address(myStrategy1)), EMPTY_CALLDATA);
+        assertTrue(ERC20(wETH).balanceOf(address(stkVault)) > 0);
+
+        // second accumulation
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        vm.startPrank(_user);
+        stkVault.requestRedemption(Constants.ONE_GWEI);
+        vm.stopPrank();
+        (uint256 _fee2,,) = stkVault.mgmtFee();
+        assertTrue(_fee2 > _fee);
+
+        // third accumulation
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        vm.startPrank(_user);
+        stkVault.requestRedemption(stkVault.balanceOf(_user));
+        myStrategy1.collectAll(EMPTY_CALLDATA);
+        stkVault.claimRedemptionRequest();
+        vm.stopPrank();
+        (uint256 _fee3,,) = stkVault.mgmtFee();
+        assertTrue(_fee3 > _fee);
+
+        uint256 _beforeVal = ERC20(wETH).balanceOf(stkVault._feeRecipient());
+        vm.startPrank(stkVOwner);
+        stkVault.claimManagementFee();
+        vm.stopPrank();
+        assertEq(_fee3, ERC20(wETH).balanceOf(stkVault._feeRecipient()) - _beforeVal);
+    }
+
+    function test_AccumulateMgmtFee_SameShare(uint256 _testVal) public {
+        uint256 _generousAsset = _fundFirstDepositGenerously(address(stkVault));
+
+        address _user = TestUtils._getSugarUser();
+        TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, wETHVal, wETHVal);
+        uint256 _totalAsset0 = stkVault.totalAssets();
+
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+        uint256 _totalAsset1 = stkVault.totalAssets();
+
+        // first user
+        address _user1 = TestUtils._getSugarUser();
+        (uint256 _assetVal, uint256 _share1) =
+            TestUtils._makeVaultDeposit(address(stkVault), _user1, _testVal, 10 ether, wETHVal);
+        (uint256 _fee1,,) = stkVault.mgmtFee();
+        assertTrue(_fee1 > 0);
+        assertEq(_totalAsset1 + _fee1, _totalAsset0);
+
+        // second user
+        address _user2 = TestUtils._getSugarUser();
+        (, uint256 _share2) = TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal, _assetVal, _assetVal);
+
+        console.log("_share1:%d,_share2:%d", _share1, _share2);
+        assertTrue(_assertApproximateEq(_share2, _share1, COMP_TOLERANCE));
     }
 
     function test_Deposit_Inflation() public {
@@ -336,7 +412,9 @@ contract SparkleXVaultTest is TestUtils {
         stkVault.claimRedemptionRequest();
         vm.stopPrank();
         Vm.Log[] memory logEntries = vm.getRecordedLogs();
-        assertEq(0, logEntries.length);
+        assertEq(1, logEntries.length);
+        console.logBytes32(logEntries[0].topics[0]);
+        assertEq(0xe42c83f2716abb12c6d8cb5ad380eeb47009d410e5e9864205e474045e450869, logEntries[0].topics[0]);
     }
 
     function test_Strategy_Add_Remove(uint256 _testVal) public {
@@ -531,6 +609,9 @@ contract SparkleXVaultTest is TestUtils {
 
     function test_AddStrategy_TooMany() public {
         _fundFirstDepositGenerously(address(stkVault));
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        new DummyPendleAAVEStrategy(address(stkVault));
 
         // add enough strategies
         for (uint256 i = 0; i < MAX_STRATEGIES_NUM; i++) {

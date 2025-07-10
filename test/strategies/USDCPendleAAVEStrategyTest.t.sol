@@ -246,6 +246,35 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         _assertApproximateEq(_totalInAsset, (_initSupply + _initDebt), 1 * MIN_SHARE);
     }
 
+    function test_Invest_PreviewAmount(uint256 _testVal) public {
+        (myStrategy, strategist) = _createPendleStrategy(true);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+        bytes memory EMPTY_CALLDATA;
+
+        uint256 _initDebt = aaveHelper.previewLeverageForInvest(magicUSDCAmount, magicUSDCAmountLeveraged);
+        bytes memory _prepareCALLDATA =
+            _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, magicUSDCAmount);
+        bytes memory _flCALLDATA = _generateSwapCalldataForBuy(myStrategy, address(MARKET_ADDR1), 0, _initDebt);
+        _prepareSwapForMockRouter(mockRouter, usdc, address(PT_ADDR1), PT1_Whale, USDC_TO_PT1_DUMMY_PRICE);
+
+        vm.startPrank(usdcWhale);
+        ERC20(usdc).transfer(myStrategy, _initDebt);
+        vm.stopPrank();
+
+        vm.startPrank(strategist);
+        PendleAAVEStrategy(myStrategy).invest(
+            magicUSDCAmount, _initDebt, abi.encode(_prepareCALLDATA, _initDebt, _flCALLDATA)
+        );
+        vm.stopPrank();
+        (, uint256 _debtInAsset,) = PendleAAVEStrategy(myStrategy).getNetSupplyAndDebt(true);
+        assertTrue(_assertApproximateEq(_initDebt, _debtInAsset, 20 * MIN_SHARE));
+    }
+
     function test_FullDeloop_Pendle(uint256 _testVal) public {
         (myStrategy, strategist) = _createPendleStrategy(true);
         _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
@@ -670,7 +699,9 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
         assertEq(_shorterTWAPPrice, _longerTWAPPrice);
 
         // test price with underlying as ERC4626
-        uint256 _eUSDePrice = PendleAAVEStrategy(myStrategy).getPTPriceInAsset(usdc, address(PT_ADDR4));
+        uint256 _eUSDePrice = PendleAAVEStrategy(myStrategy).getPTPriceInAssetWithHeartbeat(
+            usdc, address(PT_ADDR4), uint32(Constants.ONE_YEAR * 2)
+        );
         assertTrue(_assertApproximateEq(_eUSDePrice, Constants.ONE_ETHER, BIGGER_TOLERANCE));
     }
 
@@ -733,6 +764,7 @@ contract USDCPendleAAVEStrategyTest is BasePendleStrategyTest {
 
         address _routerAddr = (_useMockRouter ? address(mockRouter) : pendleRouterV4);
         pendleHelper = new PendleHelper(_deployedStrategy, _routerAddr, address(swapper));
+        swapper.setWhitelist(address(pendleHelper), true);
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         vm.startPrank(strategyOwner);

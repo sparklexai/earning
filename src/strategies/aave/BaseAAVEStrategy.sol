@@ -47,7 +47,15 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         ) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
+
+        if (_aaveHelper != Constants.ZRO_ADDR) {
+            _revokeTokenApproval(address(AAVEHelper(_aaveHelper)._supplyToken()), _aaveHelper);
+            _revokeTokenApproval(address(AAVEHelper(_aaveHelper)._borrowToken()), _aaveHelper);
+            _approveDelegationToAAVEHelper(0);
+        }
+
         emit AAVEHelperChanged(_aaveHelper, _newHelper);
+
         _aaveHelper = _newHelper;
         _prepareAllowanceForHelper();
     }
@@ -56,7 +64,6 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         _delegateCreditToHelper();
         _approveToken(address(AAVEHelper(_aaveHelper)._supplyToken()), _aaveHelper);
         _approveToken(address(AAVEHelper(_aaveHelper)._borrowToken()), _aaveHelper);
-        _approveToken(address(AAVEHelper(_aaveHelper)._supplyAToken()), _aaveHelper);
         _approveToken(address(AAVEHelper(_aaveHelper)._borrowToken()), address(aavePool));
     }
 
@@ -192,9 +199,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         virtual
     {
         _prepareSupplyFromAsset(_assetAmount, _extraAction);
-        uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(
-            _capAmountByBalance(_asset, _assetAmount, false), _borrowAmount
-        );
+        uint256 _toBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(0, _borrowAmount);
 
         // use flashloan to leverage position
         (, address _flProvider,) = AAVEHelper(_aaveHelper).useSparkFlashloan();
@@ -295,11 +300,16 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function _delegateCreditToHelper() internal {
-        address variableDebtToken =
-            aavePool.getReserveVariableDebtToken(address(AAVEHelper(_aaveHelper)._borrowToken()));
-        IVariableDebtToken(variableDebtToken).approveDelegation(_aaveHelper, type(uint256).max);
+        address variableDebtToken = _approveDelegationToAAVEHelper(type(uint256).max);
         uint8 _eMode = AAVEHelper(_aaveHelper)._eMode();
         aavePool.setUserEMode(_eMode);
         emit DebtDelegateToAAVEHelper(address(this), _aaveHelper, variableDebtToken, _eMode);
+    }
+
+    function _approveDelegationToAAVEHelper(uint256 _allowance) internal returns (address) {
+        address variableDebtToken =
+            aavePool.getReserveVariableDebtToken(address(AAVEHelper(_aaveHelper)._borrowToken()));
+        IVariableDebtToken(variableDebtToken).approveDelegation(_aaveHelper, _allowance);
+        return variableDebtToken;
     }
 }

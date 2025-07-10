@@ -269,7 +269,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
     function _accumulateManagementFeeInternal() internal {
         ManagementFeeRecord storage _feeRecord = mgmtFee;
         uint256 currentTime = block.timestamp;
-        uint256 currentTotalAssets = totalAssets();
+        uint256 currentTotalAssets = _rawTotalAssets();
         (uint256 newFee,) = previewManagementFeeAccumulated(currentTotalAssets, currentTime);
 
         if (newFee > 0) {
@@ -310,7 +310,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
         }
 
         _feeRecord.feesAccumulated = 0;
-        SafeERC20.safeTransferFrom(ERC20(asset()), address(this), _feeRecipient, _feeToClaim);
+        SafeERC20.safeTransfer(ERC20(asset()), _feeRecipient, _feeToClaim);
 
         emit ManagementFeeClaimed(_feeRecipient, _feeToClaim);
     }
@@ -336,9 +336,14 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
             revert Constants.ZERO_SHARE_TO_MINT();
         }
 
+        uint256 _totalS = totalSupply();
+        if (_totalS > 0) {
+            _accumulateManagementFeeInternal();
+        }
+
         SafeERC20.safeTransferFrom(ERC20(asset()), caller, address(this), assets);
 
-        if (totalSupply() == 0) {
+        if (_totalS == 0) {
             if (shares <= MIN_SHARE) {
                 revert Constants.TOO_SMALL_FIRST_SHARE();
             }
@@ -353,6 +358,12 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
     }
 
     function totalAssets() public view override returns (uint256) {
+        uint256 _currentTotalAssets = _rawTotalAssets();
+        (uint256 newFee,) = previewManagementFeeAccumulated(_currentTotalAssets, block.timestamp);
+        return _currentTotalAssets - newFee - mgmtFee.feesAccumulated;
+    }
+
+    function _rawTotalAssets() public view returns (uint256) {
         uint256 _residue = ERC20(asset()).balanceOf(address(this));
         uint256 _total;
         for (uint256 i = 0; i < MAX_ACTIVE_STRATEGY; i++) {
@@ -374,6 +385,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
         override
         whenNotPaused
     {
+        _accumulateManagementFeeInternal();
         if (caller != owner) {
             _spendAllowance(owner, caller, shares);
         }
@@ -437,6 +449,7 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
      * @dev user should use this method to claim redemption if any.
      */
     function claimRedemptionRequest() external returns (uint256) {
+        _accumulateManagementFeeInternal();
         return _claimRedemptionRequestFor(msg.sender);
     }
 
@@ -477,6 +490,9 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
     {
         uint256 _total;
         uint256 _usersLen = _users.length;
+
+        _accumulateManagementFeeInternal();
+
         for (uint256 i = 0; i < _usersLen; i++) {
             _total = _total + _claimRedemptionRequestFor(_users[i]);
         }

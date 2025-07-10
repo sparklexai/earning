@@ -22,6 +22,7 @@ struct PTInfo {
     address underlyingOracle; // external oracle for underlying yieldToken of this market
     address intermediateOracle; // external intermediate oracle for underlying yieldToken of this market
     uint32 syOracleTwapSeconds; // use 900 or 1800 for most markets
+    uint32 underlyingOracleHeartbeat;
 }
 
 contract PendleStrategy is BaseSparkleXStrategy {
@@ -33,6 +34,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
     // Constants and State Variables
     ///////////////////////////////
     mapping(address => address) _assetOracles;
+    mapping(address => uint32) _assetOracleHeartbeats;
     address public _pendleHelper;
 
     // Pendle contract addresses (Ethereum mainnet)
@@ -49,7 +51,11 @@ contract PendleStrategy is BaseSparkleXStrategy {
     ///////////////////////////////
     event PendleHelperChanged(address indexed _old, address indexed _new);
     event PTAdded(
-        address indexed market, address indexed underlyingYieldToken, address indexed _caller, uint32 twapSeconds
+        address indexed market,
+        address indexed underlyingYieldToken,
+        address indexed _caller,
+        uint32 twapSeconds,
+        uint32 heartbeat
     );
     event PTRemoved(address indexed ptToken, address indexed _caller);
     event PTTokensRollover(
@@ -58,22 +64,28 @@ contract PendleStrategy is BaseSparkleXStrategy {
     event PTTokensPurchased(address indexed assetToken, address indexed ptToken, uint256 assetAmount, uint256 ptAmount);
     event PTTokensSold(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
     event PTTokensRedeemed(address indexed assetToken, address indexed ptToken, uint256 ptAmount, uint256 assetAmount);
-    event AssetOracleAdded(address indexed assetToken, address indexed oracle);
+    event AssetOracleAdded(
+        address indexed assetToken, address indexed oracle, address indexed intermediateOracle, uint32 heartbeat
+    );
 
-    constructor(ERC20 token, address vault, address assetOracle) BaseSparkleXStrategy(token, vault) {
+    constructor(ERC20 token, address vault, address assetOracle, uint32 _heartbeat)
+        BaseSparkleXStrategy(token, vault)
+    {
         if (assetOracle == Constants.ZRO_ADDR) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
         _assetOracles[address(token)] = assetOracle;
-        emit AssetOracleAdded(address(token), assetOracle);
+        _assetOracleHeartbeats[address(token)] = _heartbeat;
+        emit AssetOracleAdded(address(token), assetOracle, Constants.ZRO_ADDR, _heartbeat);
     }
 
-    function setAssetOracle(address _asset, address _oracle) external onlyOwner {
-        if (_oracle == Constants.ZRO_ADDR || _asset == Constants.ZRO_ADDR) {
+    function setAssetOracle(address _asset, address _oracle, uint32 _heartbeat) external onlyOwner {
+        if (_oracle == Constants.ZRO_ADDR || _asset == Constants.ZRO_ADDR || _heartbeat == 0) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
         _assetOracles[_asset] = _oracle;
-        emit AssetOracleAdded(_asset, _oracle);
+        _assetOracleHeartbeats[_asset] = _heartbeat;
+        emit AssetOracleAdded(_asset, _oracle, Constants.ZRO_ADDR, _heartbeat);
     }
 
     function setPendleHelper(address _newHelper) external onlyOwner {
@@ -148,7 +160,8 @@ contract PendleStrategy is BaseSparkleXStrategy {
         address underlyingYieldToken,
         address underlyingOracleAddress,
         address intermediateOracleAddress,
-        uint32 twapSeconds
+        uint32 twapSeconds,
+        uint32 heartbeat
     ) external onlyOwner onlyVaultNotPaused {
         if (
             marketAddress == Constants.ZRO_ADDR || underlyingYieldToken == Constants.ZRO_ADDR
@@ -176,12 +189,14 @@ contract PendleStrategy is BaseSparkleXStrategy {
             underlyingYield: underlyingYieldToken,
             underlyingOracle: underlyingOracleAddress,
             intermediateOracle: intermediateOracleAddress,
-            syOracleTwapSeconds: twapSeconds
+            syOracleTwapSeconds: twapSeconds,
+            underlyingOracleHeartbeat: heartbeat
         });
         _assetOracles[underlyingYieldToken] = underlyingOracleAddress;
-        emit AssetOracleAdded(underlyingYieldToken, underlyingOracleAddress);
+        _assetOracleHeartbeats[underlyingYieldToken] = heartbeat;
+        emit AssetOracleAdded(underlyingYieldToken, underlyingOracleAddress, intermediateOracleAddress, heartbeat);
         activePTs.add(address(_ptToken));
-        emit PTAdded(marketAddress, underlyingYieldToken, msg.sender, twapSeconds);
+        emit PTAdded(marketAddress, underlyingYieldToken, msg.sender, twapSeconds, heartbeat);
     }
 
     /**
@@ -368,6 +383,7 @@ contract PendleStrategy is BaseSparkleXStrategy {
             _assetOracles[_assetToken],
             ptInfo.market,
             ptInfo.syOracleTwapSeconds,
+            ptInfo.underlyingOracleHeartbeat,
             ptInfo.underlyingYield,
             ptInfo.underlyingOracle,
             ptInfo.intermediateOracle,

@@ -45,7 +45,9 @@ contract TokenSwapper is Ownable {
      */
     uint256 public SWAP_SLIPPAGE_BPS = 9920;
     uint32 public constant PENDLE_ORACLE_TWAP = 900;
+    uint32 public constant DEFAULT_Heartbeat = 86400;
     mapping(address => address) public _tokenOracles;
+    mapping(address => bool) public whitelistCaller;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -84,6 +86,7 @@ contract TokenSwapper is Ownable {
     event SwapInUniswap(
         address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out
     );
+    event CallerWhitelisted(address indexed _caller, bool _whitelisted);
 
     constructor() Ownable(msg.sender) {
         _tokenOracles[usdt] = USDT_USD_Feed;
@@ -101,11 +104,33 @@ contract TokenSwapper is Ownable {
         }
     }
 
+    function _revokeTokenApproval(address _token, address _spender) internal {
+        SafeERC20.forceApprove(ERC20(_token), _spender, 0);
+    }
+
     function setSlippage(uint256 _slippage) external onlyOwner {
         if (_slippage == 0 || _slippage >= Constants.TOTAL_BPS) {
             revert Constants.INVALID_BPS_TO_SET();
         }
         SWAP_SLIPPAGE_BPS = _slippage;
+    }
+
+    function setWhitelist(address _caller, bool _whitelisted) external onlyOwner {
+        if (_caller == Constants.ZRO_ADDR) {
+            revert Constants.INVALID_ADDRESS_TO_SET();
+        }
+        whitelistCaller[_caller] = _whitelisted;
+        emit CallerWhitelisted(_caller, _whitelisted);
+    }
+
+    /**
+     * @dev allow only called by whitelisted caller.
+     */
+    modifier onlyWhitelistedCaller() {
+        if (!whitelistCaller[msg.sender]) {
+            revert Constants.ONLY_FOR_WHITELISTED_CALLER();
+        }
+        _;
     }
 
     ///////////////////////////////
@@ -118,7 +143,7 @@ contract TokenSwapper is Ownable {
         address singlePool,
         uint256 _inAmount,
         uint256 _minOut
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         ISwapRouter.ExactInputSingleParams memory _inputSingle = ISwapRouter.ExactInputSingleParams({
             tokenIn: inToken,
             tokenOut: outToken,
@@ -133,6 +158,7 @@ contract TokenSwapper is Ownable {
         _approveTokenToDex(inToken, address(uniswapV3Router));
         uint256 _outActual = uniswapV3Router.exactInputSingle(_inputSingle);
         emit SwapInUniswap(inToken, outToken, msg.sender, _inAmount, _outActual);
+        _revokeTokenApproval(inToken, address(uniswapV3Router));
         return _outActual;
     }
 
@@ -150,7 +176,7 @@ contract TokenSwapper is Ownable {
         address singlePool,
         uint256 _inAmount,
         uint256 _minOut
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         address[11] memory _route = [
             inToken,
             singlePool,
@@ -177,15 +203,11 @@ contract TokenSwapper is Ownable {
         address[5] memory _pools =
             [singlePool, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
 
-        uint256 _dy = _minOut;
-        if (_dy == 0) {
-            _dy = curveRouter.get_dy(_route, _params, _inAmount, _pools) * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS;
-        }
-
         SafeERC20.safeTransferFrom(ERC20(inToken), msg.sender, address(this), _inAmount);
         _approveTokenToDex(inToken, address(curveRouter));
-        uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _dy, _pools, msg.sender);
+        uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _minOut, _pools, msg.sender);
         emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
+        _revokeTokenApproval(inToken, address(curveRouter));
         return _out;
     }
 
@@ -197,36 +219,11 @@ contract TokenSwapper is Ownable {
         if (ICurvePool(_twoTokenPool).coins(0) == _token) {
             return 0;
         } else {
+            if (ICurvePool(_twoTokenPool).coins(1) != _token) {
+                revert Constants.INVALID_TOKEN_INDEX_IN_CURVE();
+            }
             return 1;
         }
-    }
-
-    function queryXWithYInCurve(address inToken, address outToken, address singlePool, uint256 _minOut)
-        external
-        view
-        returns (uint256)
-    {
-        address[11] memory _route = [
-            inToken,
-            singlePool,
-            outToken,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR,
-            Constants.ZRO_ADDR
-        ];
-        uint256[5] memory _swapParams = [uint256(1), uint256(0), uint256(1), uint256(1), uint256(2)];
-        uint256[5] memory _dummy = [uint256(0), uint256(0), uint256(0), uint256(0), uint256(0)];
-        uint256[5][5] memory _params = [_swapParams, _dummy, _dummy, _dummy, _dummy];
-        address[5] memory _pools =
-            [singlePool, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
-        address[5] memory _dummy_pools =
-            [Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR];
-        return curveRouter.get_dx(_route, _params, _minOut, _pools, _dummy_pools, _dummy_pools);
     }
 
     ///////////////////////////////
@@ -247,7 +244,7 @@ contract TokenSwapper is Ownable {
         uint256 _inAmount,
         uint256 _minOut,
         bytes calldata _swapCallData
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         address _receiverDecoded = _getReceiverFromPendleCalldata(_swapCallData);
         if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {
             revert Constants.WRONG_SWAP_RECEIVER();
@@ -267,7 +264,7 @@ contract TokenSwapper is Ownable {
         uint256 _inAmount,
         uint256 _minOut,
         bytes calldata _swapCallData
-    ) external returns (uint256) {
+    ) external onlyWhitelistedCaller returns (uint256) {
         (,,, bytes memory _reflectCall) = abi.decode(_swapCallData[4:], (address, bytes, bytes, bytes));
         address _receiverDecoded = this._getReceiverFromPendleCalldata(_reflectCall);
         if (_receiverDecoded != msg.sender && _receiverDecoded != IPendleHelper(msg.sender)._strategy()) {
@@ -302,12 +299,21 @@ contract TokenSwapper is Ownable {
         if (applySlippageMargin(_actualOut) < _minOut) {
             revert Constants.SWAP_OUT_TOO_SMALL();
         }
+        _revokeTokenApproval(_inputToken, _router);
         return _actualOut;
     }
 
     function getPriceFromChainLink(address _aggregator) public view returns (int256, uint256, uint8) {
+        return getPriceFromChainLinkWithHeartbeat(_aggregator, DEFAULT_Heartbeat);
+    }
+
+    function getPriceFromChainLinkWithHeartbeat(address _aggregator, uint32 _heartbeat)
+        public
+        view
+        returns (int256, uint256, uint8)
+    {
         (uint80 roundId, int256 answer,, uint256 updatedAt,) = IOracleAggregatorV3(_aggregator).latestRoundData();
-        if (roundId == 0 || answer <= 0) {
+        if (roundId == 0 || answer <= 0 || (block.timestamp - updatedAt) > _heartbeat) {
             revert Constants.WRONG_PRICE_FROM_ORACLE();
         }
         return (answer, updatedAt, IOracleAggregatorV3(_aggregator).decimals());
@@ -332,6 +338,7 @@ contract TokenSwapper is Ownable {
         address _assetOracle,
         address _ptMarket,
         uint32 _twapSeconds,
+        uint32 _heartbeat,
         address _underlyingYield,
         address _underlyingYieldOracle,
         address _intermediateOracle,
@@ -340,30 +347,32 @@ contract TokenSwapper is Ownable {
         // 1:1 value at maturity
         uint256 _ptPriceInSY =
             IPMarketV3(_ptMarket).isExpired() ? Constants.ONE_ETHER : getPTPriceInSYFromPendle(_ptMarket, _twapSeconds);
-        uint256 _pt2UnderlyingRateScaled =
-            _ptPriceInSY * _syToUnderlyingRate * Constants.ONE_ETHER / (Constants.ONE_ETHER * Constants.ONE_ETHER);
+        uint256 _pt2UnderlyingRateScaled = _ptPriceInSY * _syToUnderlyingRate / Constants.ONE_ETHER;
 
         if (_underlyingYield == _assetToken) {
             return _pt2UnderlyingRateScaled;
         }
 
         // ensure asset and underlying oracles return prices in same base unit like USD
-        (uint256 _uP, uint256 _uD) = _getUnderlyingPrice(_underlyingYield, _underlyingYieldOracle, _intermediateOracle);
-        (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLink(_assetOracle);
+        (uint256 _uP, uint256 _uD) =
+            _getUnderlyingPrice(_underlyingYield, _underlyingYieldOracle, _intermediateOracle, _heartbeat);
+        (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLinkWithHeartbeat(_assetOracle, _heartbeat);
         return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * _uP
             / (_uD * uint256(_assetPrice));
     }
 
-    function _getUnderlyingPrice(address _underlyingYield, address _underlyingYieldOracle, address _intermediateOracle)
-        internal
-        view
-        returns (uint256, uint256)
-    {
+    function _getUnderlyingPrice(
+        address _underlyingYield,
+        address _underlyingYieldOracle,
+        address _intermediateOracle,
+        uint32 _heartbeat
+    ) internal view returns (uint256, uint256) {
         uint256 _uP;
         uint256 _uD;
 
         if (_underlyingYield != _underlyingYieldOracle) {
-            (int256 _underlyingPrice,, uint8 _decimal) = getPriceFromChainLink(_underlyingYieldOracle);
+            (int256 _underlyingPrice,, uint8 _decimal) =
+                getPriceFromChainLinkWithHeartbeat(_underlyingYieldOracle, _heartbeat);
             _uP = uint256(_underlyingPrice);
             _uD = Constants.convertDecimalToUnit(_decimal);
         } else {
@@ -373,7 +382,8 @@ contract TokenSwapper is Ownable {
         }
 
         if (_intermediateOracle != Constants.ZRO_ADDR) {
-            (int256 _intermediatePrice,, uint8 _decimalIntermediate) = getPriceFromChainLink(_intermediateOracle);
+            (int256 _intermediatePrice,, uint8 _decimalIntermediate) =
+                getPriceFromChainLinkWithHeartbeat(_intermediateOracle, _heartbeat);
             _uP = _uP * uint256(_intermediatePrice) / _uD;
             _uD = Constants.convertDecimalToUnit(_decimalIntermediate);
         }

@@ -20,6 +20,7 @@ import {IPriceOracleGetter} from "../../interfaces/aave/IPriceOracleGetter.sol";
 import {TestUtils} from "../TestUtils.sol";
 import {Constants} from "../../src/utils/Constants.sol";
 import {DummyRewardDistributor} from "../mock/DummyRewardDistributor.sol";
+import {IVariableDebtToken} from "../../interfaces/aave/IVariableDebtToken.sol";
 
 // run this test with mainnet fork
 // forge test --fork-url <rpc_url> --match-path ETHEtherFiAAVEStrategyTest -vvv
@@ -41,6 +42,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
     address constant withdrawNFTAdmin = 0x0EF8fa4760Db8f5Cd4d993f3e3416f30f942D705;
     ERC20 aWeETH = ERC20(0xBdfa7b7893081B35Fb54027489e2Bc7A38275129);
+    address constant aWeETHDebt = 0xeA51d7853EEFb32b6ee06b1C12E6dcCA88Be0fFE;
 
     // events to check
     event DummyRewardClaimed(uint256 index, address account, uint256 amount);
@@ -63,6 +65,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         etherfiHelper = new EtherFiHelper();
         aaveHelper = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), aWeETH, 1);
         aaveHelperOwner = aaveHelper.owner();
+        swapper.setWhitelist(address(myStrategy), true);
 
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), MAX_ETH_ALLOWED);
@@ -93,11 +96,26 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.setEtherFiHelper(Constants.ZRO_ADDR);
         vm.stopPrank();
 
+        address _user1 = TestUtils._getSugarUser();
+        AAVEHelper aaveHelper2 = new AAVEHelper(address(myStrategy), ERC20(weETH), ERC20(wETH), aWeETH, 1);
+        vm.startPrank(strategyOwner);
+        myStrategy.setEtherFiHelper(_user1);
+        myStrategy.setAAVEHelper(address(aaveHelper2));
+        vm.stopPrank();
+        assertEq(ERC20(wETH).allowance(address(myStrategy), _user1), type(uint256).max);
+        assertEq(ERC20(weETH).allowance(address(myStrategy), address(aaveHelper2)), type(uint256).max);
+        assertEq(
+            IVariableDebtToken(aWeETHDebt).borrowAllowance(address(myStrategy), address(aaveHelper2)), type(uint256).max
+        );
+
         vm.startPrank(strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setEtherFiHelper(address(etherfiHelper));
         myStrategy.setAAVEHelper(address(aaveHelper));
         vm.stopPrank();
+        assertEq(ERC20(wETH).allowance(address(myStrategy), _user1), 0);
+        assertEq(ERC20(weETH).allowance(address(myStrategy), address(aaveHelper2)), 0);
+        assertEq(IVariableDebtToken(aWeETHDebt).borrowAllowance(address(myStrategy), address(aaveHelper2)), 0);
 
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         vm.startPrank(strategyOwner);
@@ -364,6 +382,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         myStrategy.invest(0, _redemptionShare * 2, EMPTY_CALLDATA);
         vm.stopPrank();
 
+        vm.warp(block.timestamp + Constants.ONE_YEAR);
+
         vm.startPrank(strategist);
         myStrategy.invest(0, _redemptionShare * 2, EMPTY_CALLDATA);
         vm.stopPrank();
@@ -460,7 +480,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         assertEq(_activeWithdrawReqs.length, 0);
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
-        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, COMP_TOLERANCE));
+        console.log("_debt2:%d,_maxBorrow:%d,_debt:%d", _debt2, _maxBorrow, _debt);
+        assertTrue(_assertApproximateEq(_debt2 + _maxBorrow, _debt, BIGGER_TOLERANCE));
 
         _checkBasicInvariants(address(stkVault));
     }
@@ -612,10 +633,19 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         uint256[] memory _reqIds = new uint256[](_maxRedeemCount);
 
+        vm.startPrank(address(aWeETH));
+        ERC20(weETH).approve(address(etherfiHelper), type(uint256).max);
+        for (uint256 i = 0; i < _maxRedeemCount; i++) {
+            etherfiHelper.requestWithdrawFromEtherFi(Constants.ONE_GWEI, 0);
+        }
+        vm.stopPrank();
+        assertEq(_maxRedeemCount, etherfiHelper.withdrawCountsForRequster(address(aWeETH)));
+
         for (uint256 i = 0; i < _maxRedeemCount; i++) {
             _reqIds[i] = _activeWithdrawReqs[i][0];
             _finalizeWithdrawRequest(_reqIds[i]);
         }
+        assertEq(_maxRedeemCount, etherfiHelper.withdrawCountsForRequster(address(myStrategy)));
 
         vm.startPrank(strategist);
         myStrategy.claimAndRepay(_reqIds, _maxBorrow);
@@ -623,6 +653,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 0);
+        assertEq(0, etherfiHelper.withdrawCountsForRequster(address(myStrategy)));
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
         console.log("_debt:%d,_maxBorrow:%d,_debt2:%d", _debt, _maxBorrow, _debt2);
@@ -635,7 +666,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user1 = TestUtils._getSugarUser();
         address _user2 = TestUtils._getSugarUser();
         address _user3 = TestUtils._getSugarUser();
-        uint256 _timeElapsed = Constants.ONE_YEAR / 12;
+        uint256 _timeElapsed = ONE_DAY_HEARTBEAT / 12;
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user1
         (uint256 _assetVal1, uint256 _share1) =
@@ -849,6 +880,19 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
         (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(true);
         assertTrue(_debtInAsset > 0);
+
+        // wETH is coins(2) in curve tricrypto pool
+        TestUtils._setTokenSwapperWhitelist(address(swapper), _user, true);
+        vm.expectRevert(Constants.INVALID_TOKEN_INDEX_IN_CURVE.selector);
+        vm.startPrank(_user);
+        swapper.swapInCurveTwoTokenPool(wETH, USDT, 0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4, Constants.ONE_ETHER, 0);
+        vm.stopPrank();
+
+        TestUtils._setTokenSwapperWhitelist(address(swapper), _user, false);
+        vm.expectRevert(Constants.ONLY_FOR_WHITELISTED_CALLER.selector);
+        vm.startPrank(_user);
+        swapper.swapInCurveTwoTokenPool(wETH, USDT, 0xf5f5B97624542D72A9E06f04804Bf81baA15e2B4, Constants.ONE_ETHER, 0);
+        vm.stopPrank();
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {

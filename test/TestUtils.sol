@@ -7,6 +7,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {WETH} from "../interfaces/IWETH.sol";
 import {SparkleXVault} from "../src/SparkleXVault.sol";
 import {Constants} from "../src/utils/Constants.sol";
+import {TokenSwapper} from "../src/utils/TokenSwapper.sol";
 import {DummyDEXRouter} from "./mock/DummyDEXRouter.sol";
 import {Create3} from "./Create3.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -17,6 +18,7 @@ contract TestUtils is Test {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     bytes32 internal nextUser = keccak256(abi.encodePacked("user address"));
     uint256 constant wETHVal = 10000 ether;
     uint256 constant COMP_TOLERANCE = 10000;
@@ -26,6 +28,7 @@ contract TestUtils is Test {
     EnumerableSet.AddressSet private _testUsers;
     uint256 constant MAX_ETH_ALLOWED = 1000000 * Constants.ONE_ETHER;
     uint256 constant MAX_USDC_ALLOWED = Constants.ONE_ETHER;
+    uint32 constant ONE_DAY_HEARTBEAT = 86400;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();
@@ -108,9 +111,13 @@ contract TestUtils is Test {
         uint256 _currentWorth = SparkleXVault(_vault).previewRedeem(_share);
         uint256 _requestedAsset = SparkleXVault(_vault).userRedemptionRequestAssets(_user);
         uint256 _less = _requestedAsset > _currentWorth ? _currentWorth : _requestedAsset;
+        uint256 _currentTime = block.timestamp;
         vm.startPrank(_user);
         _actualRedeemed = SparkleXVault(_vault).claimRedemptionRequest();
         vm.stopPrank();
+        (, uint256 _lastUpdateTA, uint256 _lastUpdateTime) = SparkleXVault(_vault).mgmtFee();
+        assertEq(_lastUpdateTime, _currentTime);
+        assertTrue(_lastUpdateTA > SparkleXVault(_vault)._rawTotalAssets());
 
         assertTrue(_assertApproximateEq(_less, _actualRedeemed, _tolerance));
     }
@@ -124,16 +131,33 @@ contract TestUtils is Test {
     ) internal returns (uint256 _actualRedeemed) {
         uint256 _currentWorth;
         uint256 _requestedAsset;
+        uint256[] memory _beforeValues = new uint256[](_users.length);
         for (uint256 i = 0; i < _users.length; i++) {
+            _beforeValues[i] = ERC20(SparkleXVault(_vault).asset()).balanceOf(_users[i]);
             _currentWorth = _currentWorth + SparkleXVault(_vault).previewRedeem(_shares[i]);
             _requestedAsset = _requestedAsset + SparkleXVault(_vault).userRedemptionRequestAssets(_users[i]);
+            console.log("_beforeValue=%d,shares=%d", _beforeValues[i], _shares[i]);
         }
 
         uint256 _less = _requestedAsset > _currentWorth ? _currentWorth : _requestedAsset;
+        uint256 _oneShare = Constants.convertDecimalToUnit(SparkleXVault(_vault).decimals());
+        uint256 _exchangeRate = SparkleXVault(_vault).convertToAssets(_oneShare);
+        console.log("_exchangeRate:%d", _exchangeRate);
 
         vm.startPrank(_claimer);
         _actualRedeemed = SparkleXVault(_vault).batchClaimRedemptionRequestsFor(_users);
         vm.stopPrank();
+        {
+            (, uint256 _lastUpdateTA,) = SparkleXVault(_vault).mgmtFee();
+            assertTrue(_lastUpdateTA > SparkleXVault(_vault)._rawTotalAssets());
+        }
+
+        for (uint256 i = 0; i < _users.length; i++) {
+            uint256 _diff = ERC20(SparkleXVault(_vault).asset()).balanceOf(_users[i]) - _beforeValues[i];
+            uint256 _diffRate = (_diff * _oneShare) / _shares[i];
+            console.log("_diff:%d,_diffRate:%d", _diff, _diffRate);
+            assertTrue(_assertApproximateEq(_diffRate, _exchangeRate, _oneShare / Constants.TOTAL_BPS));
+        }
 
         assertTrue(_assertApproximateEq(_less, _actualRedeemed, _tolerance));
     }
@@ -183,6 +207,7 @@ contract TestUtils is Test {
         _checkConvertToAssetsFull(_vault);
         _checkTotalShare(_vault);
         _checkStrategyAllocations(_vault);
+        _checkManagementFee(_vault);
     }
 
     function _checkConvertToSharesFull(address _vault) internal {
@@ -229,15 +254,29 @@ contract TestUtils is Test {
         assertEq(_activeCount, SparkleXVault(_vault).activeStrategies());
     }
 
+    function _checkManagementFee(address _vault) internal {
+        (uint256 _accumulatedFee, uint256 _lastUpdateTA, uint256 _lastUpdateTime) = SparkleXVault(_vault).mgmtFee();
+        assertTrue(block.timestamp >= _lastUpdateTime);
+        uint256 _totalAssets = SparkleXVault(_vault).totalAssets();
+        uint256 _rawTA = SparkleXVault(_vault)._rawTotalAssets();
+        (uint256 _newFee2,) = SparkleXVault(_vault).previewManagementFeeAccumulated(_rawTA, block.timestamp);
+        assertEq(_totalAssets + _newFee2 + _accumulatedFee, _rawTA);
+        (uint256 _newFee1,) = SparkleXVault(_vault).previewManagementFeeAccumulated(_lastUpdateTA, block.timestamp);
+        assertEq(_newFee1, _newFee2);
+    }
+
     function _makeVaultDeposit(address _vault, address _user, uint256 _amount, uint256 _low, uint256 _high)
         internal
         returns (uint256, uint256)
     {
         uint256 _assetAmount = bound(_amount, _low, _high);
+        uint256 _currentTime = block.timestamp;
         vm.startPrank(_user);
         ERC20(SparkleXVault(_vault).asset()).approve(_vault, type(uint256).max);
         uint256 _share = SparkleXVault(_vault).deposit(_assetAmount, _user);
         vm.stopPrank();
+        (,, uint256 _lastUpdateTime) = SparkleXVault(_vault).mgmtFee();
+        assertEq(_lastUpdateTime, _currentTime);
         return (_assetAmount, _share);
     }
 
@@ -254,11 +293,13 @@ contract TestUtils is Test {
         address _asset = SparkleXVault(_vault).asset();
 
         uint256 _assetAmount = _getSugarUserWithERC20(_mockRouter, _user, _asset, _assetAmountInETH, _pricePerETH);
-
+        uint256 _currentTime = block.timestamp;
         vm.startPrank(_user);
         ERC20(_asset).approve(_vault, type(uint256).max);
         uint256 _share = SparkleXVault(_vault).deposit(_assetAmount, _user);
         vm.stopPrank();
+        (,, uint256 _lastUpdateTime) = SparkleXVault(_vault).mgmtFee();
+        assertEq(_lastUpdateTime, _currentTime);
         return (_assetAmount, _share);
     }
 
@@ -325,5 +366,11 @@ contract TestUtils is Test {
         vm.stopPrank();
         assertEq(_expected, _paused);
         return _paused;
+    }
+
+    function _setTokenSwapperWhitelist(address _tokenSwapper, address _caller, bool _whitelisted) internal {
+        vm.startPrank(TokenSwapper(_tokenSwapper).owner());
+        TokenSwapper(_tokenSwapper).setWhitelist(_caller, _whitelisted);
+        vm.stopPrank();
     }
 }
