@@ -91,8 +91,7 @@ contract DeployScript is Script {
 
         myStrategy.setSwapper(address(_tokenSwapper));
         myStrategy.setPendleHelper(address(pendleHelper));
-        myStrategy.addPT(MARKET_sUSDe, sUSDe, sUSDe, USDe_USD_FEED, 900, 86400);
-        myStrategy.addPT(MARKET_USDS, usds, USDS_USD_Feed, address(0), 900, 86400);
+        _addPTJuly2025(myStrategy, TokenSwapper(_tokenSwapper));
         myStrategy.setStrategist(_strategist);
         TokenSwapper(_tokenSwapper).setWhitelist(address(pendleHelper), true);
 
@@ -104,5 +103,61 @@ contract DeployScript is Script {
         TokenSwapper(_tokenSwapper).setWhitelist(address(pendleHelper2), true);
 
         vm.stopBroadcast();
+    }
+
+    function _addPTJuly2025(PendleStrategy _pendleStrategy, TokenSwapper _tokenSwapper) internal {
+        // sUSDe https://app.pendle.finance/trade/markets/0xA36b60A14A1A5247912584768C6e53E1a269a9F7/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(0xA36b60A14A1A5247912584768C6e53E1a269a9F7, sUSDe, sUSDe, USDe_USD_FEED, 900, 86400);
+        // USDe https://app.pendle.finance/trade/markets/0x6d98a2b6CDbF44939362a3E99793339Ba2016aF4/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(
+            0x6d98a2b6CDbF44939362a3E99793339Ba2016aF4, _tokenSwapper.usde(), USDe_USD_FEED, address(0), 900, 86400
+        );
+        // eUSDe https://app.pendle.finance/trade/markets/0xE93B4A93e80BD3065B290394264af5d82422ee70/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(
+            0xE93B4A93e80BD3065B290394264af5d82422ee70,
+            0x90D2af7d622ca3141efA4d8f1F24d86E5974Cc8F,
+            0x90D2af7d622ca3141efA4d8f1F24d86E5974Cc8F,
+            USDe_USD_FEED,
+            900,
+            86400
+        );
+        // USR https://app.pendle.finance/trade/markets/0x33BdA865c6815c906e63878357335B28f063936c/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(
+            0x33BdA865c6815c906e63878357335B28f063936c,
+            _tokenSwapper.USR(),
+            _tokenSwapper.USR_USD_FEED(),
+            address(0),
+            1800,
+            86400
+        );
+        // wstUSR https://app.pendle.finance/trade/markets/0x09fA04Aac9c6d1c6131352EE950CD67ecC6d4fB9/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(
+            0x09fA04Aac9c6d1c6131352EE950CD67ecC6d4fB9,
+            0x1202F5C7b4B9E47a1A484E8B270be34dbbC75055,
+            0x1202F5C7b4B9E47a1A484E8B270be34dbbC75055,
+            _tokenSwapper.USR_USD_FEED(),
+            1800,
+            86400
+        );
+        // syrupUSDC https://app.pendle.finance/trade/markets/0x9A63FA80b5DDFd3Cab23803fdB93ad2c18F3d5aa/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(
+            0x9A63FA80b5DDFd3Cab23803fdB93ad2c18F3d5aa,
+            0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b,
+            0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b,
+            _tokenSwapper.USDC_USD_Feed(),
+            1800,
+            86400
+        );
+        // USDS https://app.pendle.finance/trade/markets/0xdacE1121e10500e9e29d071F01593fD76B000f08/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(0xdacE1121e10500e9e29d071F01593fD76B000f08, usds, USDS_USD_Feed, address(0), 900, 86400);
+        // sUSDf https://app.pendle.finance/trade/markets/0x45F163E583D34b8E276445dd3Da9aE077D137d72/swap?view=pt&chain=ethereum
+        _pendleStrategy.addPT(
+            0x45F163E583D34b8E276445dd3Da9aE077D137d72,
+            0xc8CF6D7991f15525488b2A83Df53468D682Ba4B0,
+            0xc8CF6D7991f15525488b2A83Df53468D682Ba4B0,
+            _tokenSwapper.USDf_USD_FEED(),
+            1800,
+            86400
+        );
     }
 }
