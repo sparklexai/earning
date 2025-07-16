@@ -150,12 +150,7 @@ contract USDCPendleStrategyTest is BasePendleStrategyTest {
             swapper.getPriceFromChainLinkWithHeartbeat(YIELD_TOKEN_FEED1, uint32(Constants.ONE_YEAR));
         assertTrue(
             _assertApproximateEq(
-                _ptPrice,
-                (
-                    uint256(_yieldUSDPrice) * IERC4626Vault(UNDERLYING_YIELD_ADDR1).convertToAssets(Constants.ONE_ETHER)
-                        * Constants.ONE_ETHER / (uint256(_usdcUSDPrice) * Constants.ONE_ETHER)
-                ),
-                BIGGER_TOLERANCE
+                _ptPrice, uint256(_yieldUSDPrice) * Constants.ONE_ETHER / uint256(_usdcUSDPrice), BIGGER_TOLERANCE
             )
         );
     }

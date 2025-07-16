@@ -345,17 +345,18 @@ contract TokenSwapper is Ownable {
         uint256 _syToUnderlyingRate
     ) public view returns (uint256) {
         // 1:1 value at maturity
-        uint256 _ptPriceInSY =
-            IPMarketV3(_ptMarket).isExpired() ? Constants.ONE_ETHER : getPTPriceInSYFromPendle(_ptMarket, _twapSeconds);
-        uint256 _pt2UnderlyingRateScaled = _ptPriceInSY * _syToUnderlyingRate / Constants.ONE_ETHER;
+        uint256 _pt2UnderlyingRateScaled = (
+            IPMarketV3(_ptMarket).isExpired() ? Constants.ONE_ETHER : getPTPriceInSYFromPendle(_ptMarket, _twapSeconds)
+        ) * _syToUnderlyingRate / Constants.ONE_ETHER;
 
         if (_underlyingYield == _assetToken) {
             return _pt2UnderlyingRateScaled;
         }
 
         // ensure asset and underlying oracles return prices in same base unit like USD
-        (uint256 _uP, uint256 _uD) =
-            _getUnderlyingPrice(_underlyingYield, _underlyingYieldOracle, _intermediateOracle, _heartbeat);
+        (uint256 _uP, uint256 _uD) = _getUnderlyingPrice(
+            _underlyingYield, _underlyingYieldOracle, _intermediateOracle, _heartbeat, IPMarketV3(_ptMarket).isExpired()
+        );
         (int256 _assetPrice,, uint8 _assetPriceDecimal) = getPriceFromChainLinkWithHeartbeat(_assetOracle, _heartbeat);
         return _pt2UnderlyingRateScaled * Constants.convertDecimalToUnit(_assetPriceDecimal) * _uP
             / (_uD * uint256(_assetPrice));
@@ -365,7 +366,8 @@ contract TokenSwapper is Ownable {
         address _underlyingYield,
         address _underlyingYieldOracle,
         address _intermediateOracle,
-        uint32 _heartbeat
+        uint32 _heartbeat,
+        bool _expired
     ) internal view returns (uint256, uint256) {
         uint256 _uP;
         uint256 _uD;
@@ -378,7 +380,7 @@ contract TokenSwapper is Ownable {
         } else {
             // assume _underlyingYield is an ERC4626 vault
             _uD = Constants.convertDecimalToUnit(IERC4626Vault(_underlyingYield).decimals());
-            _uP = IERC4626Vault(_underlyingYield).convertToAssets(_uD);
+            _uP = _expired ? _uD : IERC4626Vault(_underlyingYield).convertToAssets(_uD);
         }
 
         if (_intermediateOracle != Constants.ZRO_ADDR) {
