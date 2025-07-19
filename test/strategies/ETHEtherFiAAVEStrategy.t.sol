@@ -43,6 +43,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     address constant withdrawNFTAdmin = 0x0EF8fa4760Db8f5Cd4d993f3e3416f30f942D705;
     ERC20 aWeETH = ERC20(0xBdfa7b7893081B35Fb54027489e2Bc7A38275129);
     address constant aWeETHDebt = 0xeA51d7853EEFb32b6ee06b1C12E6dcCA88Be0fFE;
+    address constant weETH_ETH_FEED = 0x5c9C449BbC9a6075A2c061dF312a35fd1E05fF22;
 
     // events to check
     event DummyRewardClaimed(uint256 index, address account, uint256 amount);
@@ -222,7 +223,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
 
         vm.startPrank(swapper.owner());
-        swapper.setSlippage(9960);
+        swapper.setSlippage(9900);
         vm.stopPrank();
 
         vm.startPrank(strategist);
@@ -666,7 +667,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user1 = TestUtils._getSugarUser();
         address _user2 = TestUtils._getSugarUser();
         address _user3 = TestUtils._getSugarUser();
-        uint256 _timeElapsed = ONE_DAY_HEARTBEAT / 12;
+        uint256 _timeElapsed = ONE_DAY_HEARTBEAT / 48;
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user1
         (uint256 _assetVal1, uint256 _share1) =
@@ -776,6 +777,8 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         );
 
         uint256 _originalPrice = aaveOracle.getAssetPrice(weETH);
+        (int256 _originalWeETHToETHRate,,) = swapper.getPriceFromChainLink(weETH_ETH_FEED);
+        uint256 _originalWeETHToETHPrice = uint256(_originalWeETHToETHRate);
         (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
 
         // price dip 1% -> LTV exceed maximum allowed -> collect() to reduce LTV
@@ -783,6 +786,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
             address(aaveOracle),
             abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(weETH)),
             abi.encode(_originalPrice * 9900 / Constants.TOTAL_BPS)
+        );
+        vm.mockCall(
+            address(swapper),
+            abi.encodeWithSelector(TokenSwapper.getPriceFromChainLink.selector, weETH_ETH_FEED),
+            abi.encode(_originalWeETHToETHPrice * 9900 / Constants.TOTAL_BPS, block.timestamp, 18)
         );
         (_ltv, _healthFactor) = _printAAVEPosition();
         assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
@@ -805,6 +813,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
             abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(weETH)),
             abi.encode(_originalPrice * 9800 / Constants.TOTAL_BPS)
         );
+        vm.mockCall(
+            address(swapper),
+            abi.encodeWithSelector(TokenSwapper.getPriceFromChainLink.selector, weETH_ETH_FEED),
+            abi.encode(_originalWeETHToETHPrice * 9800 / Constants.TOTAL_BPS, block.timestamp, 18)
+        );
         (_ltv, _healthFactor) = _printAAVEPosition();
         assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
         vm.startPrank(strategist);
@@ -819,6 +832,11 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
             address(aaveOracle),
             abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(weETH)),
             abi.encode(_originalPrice * 9700 / Constants.TOTAL_BPS)
+        );
+        vm.mockCall(
+            address(swapper),
+            abi.encodeWithSelector(TokenSwapper.getPriceFromChainLink.selector, weETH_ETH_FEED),
+            abi.encode(_originalWeETHToETHPrice * 9700 / Constants.TOTAL_BPS, block.timestamp, 18)
         );
         (_ltv, _healthFactor) = _printAAVEPosition();
         assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
