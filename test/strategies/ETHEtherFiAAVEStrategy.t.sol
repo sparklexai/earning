@@ -194,7 +194,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 30 ether);
         _testVal = _assetVal;
         bytes memory EMPTY_CALLDATA;
 
@@ -752,7 +752,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 10 ether, 100 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 10 ether, 30 ether);
         _testVal = _assetVal;
 
         vm.startPrank(stkVOwner);
