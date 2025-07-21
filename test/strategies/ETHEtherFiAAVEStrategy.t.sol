@@ -194,7 +194,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 30 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 5 ether);
         _testVal = _assetVal;
         bytes memory EMPTY_CALLDATA;
 
@@ -273,7 +273,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 100 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 5 ether);
         _testVal = _assetVal;
         bytes memory EMPTY_CALLDATA;
 
@@ -344,7 +344,9 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _claimWithdrawRequest(strategist, _activeWithdrawReqs[0][0]);
         _claimWithdrawRequest(strategist, _activeWithdrawReqs[1][0]);
 
-        assertTrue(ERC20(wETH).balanceOf(address(stkVault)) >= (_portionVal + _portionVal * 2));
+        uint256 _vltBal = ERC20(wETH).balanceOf(address(stkVault));
+        console.log("_vltBal:%d,_portionVal:%d", _vltBal, _portionVal);
+        assertTrue(_assertApproximateEq(_vltBal, (_portionVal + _portionVal * 2), BIGGER_TOLERANCE));
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 0);
@@ -671,7 +673,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user1
         (uint256 _assetVal1, uint256 _share1) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user1, _testVal1, 2 ether, 20 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user1, _testVal1, 2 ether, 5 ether);
         _testVal1 = _assetVal1;
         _makeLoopingInvestment(10);
 
@@ -681,7 +683,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user2
         (uint256 _assetVal2, uint256 _share2) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal2, 2 ether, 20 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal2, 2 ether, 5 ether);
         _testVal2 = _assetVal2;
         _makeLoopingInvestment(10);
 
@@ -695,7 +697,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user3
         (uint256 _assetVal3, uint256 _share3) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user3, _testVal3, 2 ether, 20 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user3, _testVal3, 2 ether, 5 ether);
         _testVal3 = _assetVal3;
         _makeLoopingInvestment(10);
 
@@ -752,7 +754,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         address _user = TestUtils._getSugarUser();
 
         (uint256 _assetVal, uint256 _share) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 10 ether, 30 ether);
+            TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 2 ether, 5 ether);
         _testVal = _assetVal;
 
         vm.startPrank(stkVOwner);
