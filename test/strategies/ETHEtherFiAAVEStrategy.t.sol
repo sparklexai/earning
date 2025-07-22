@@ -328,7 +328,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.stopPrank();
 
         vm.startPrank(strategist);
-        myStrategy.collect(_portionVal * 2, EMPTY_CALLDATA);
+        myStrategy.collect(_portionVal * 3, EMPTY_CALLDATA);
         vm.stopPrank();
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
@@ -346,7 +346,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         uint256 _vltBal = ERC20(wETH).balanceOf(address(stkVault));
         console.log("_vltBal:%d,_portionVal:%d", _vltBal, _portionVal);
-        assertTrue(_assertApproximateEq(_vltBal, (_portionVal + _portionVal * 2), BIGGER_TOLERANCE));
+        assertTrue(_assertApproximateEq(_vltBal, (_portionVal + _portionVal * 3), 3 * BIGGER_TOLERANCE));
 
         _activeWithdrawReqs = myStrategy.getAllWithdrawRequests();
         assertEq(_activeWithdrawReqs.length, 0);
