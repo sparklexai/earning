@@ -25,6 +25,7 @@ contract SparkleXVaultTest is TestUtils {
     event ManagementFeeUpdated(uint256 _addedFee, uint256 _newTotalAssets, uint256 _newTimestamp, uint256 _feeBps);
 
     function setUp() public {
+        _createForkMainnet(uint256(vm.envInt("TESTNET_FORK_HEIGHT")));
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleX-ETH-Vault", "SPX-ETH-V");
         stkVOwner = stkVault.owner();
         _changeWithdrawFee(stkVOwner, address(stkVault), 0);

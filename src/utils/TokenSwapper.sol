@@ -80,6 +80,20 @@ contract TokenSwapper is Ownable {
     address public constant GHO_USD_FEED = 0x3f12643D3f6f874d39C2a4c9f2Cd6f2DbAC877FC;
 
     ///////////////////////////////
+    // stalecoins and related chainlink oracles - BNB Chain
+    ///////////////////////////////
+    address public constant USDC_BNB = 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d;
+    address public constant USDC_USD_Feed_BNB = 0x51597f405303C4377E36123cBc172b13269EA163;
+    address public constant USDT_BNB = 0x55d398326f99059fF775485246999027B3197955;
+    address public constant USDT_USD_Feed_BNB = 0xB97Ad0E74fa7d920791E90258A6E2085088b4320;
+    address public constant USDX = 0xf3527ef8dE265eAa3716FB312c12847bFBA66Cef;
+    address public constant USDe_BNB = 0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34;
+    address public constant USR_BNB = 0x2492D0006411Af6C8bbb1c8afc1B0197350a79e9;
+    address public constant USDX_USD_Feed = 0x4BAD96DD1C7D541270a0C92e1D4e5f12EEEA7a57; //redstone
+    address public constant USDe_USD_Feed_BNB = 0x10402B01cD2E6A9ed6DBe683CbC68f78Ff02f8FC;
+    address public constant USR_USD_Feed_BNB = 0xE8ed18E29402CD223bC5B73D30e40CCdf7b72986;
+
+    ///////////////////////////////
     // events
     ///////////////////////////////
     event SwapInCurve(address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out);
@@ -89,13 +103,11 @@ contract TokenSwapper is Ownable {
     event CallerWhitelisted(address indexed _caller, bool _whitelisted);
 
     constructor() Ownable(msg.sender) {
-        _tokenOracles[usdt] = USDT_USD_Feed;
-        _tokenOracles[usdc] = USDC_USD_Feed;
-        _tokenOracles[usds] = USDS_USD_Feed;
-        _tokenOracles[usde] = USDe_USD_FEED;
-        _tokenOracles[USR] = USR_USD_FEED;
-        _tokenOracles[USDf] = USDf_USD_FEED;
-        _tokenOracles[GHO] = GHO_USD_FEED;
+        if (block.chainid == 1) {
+            _addOraclesForEthereum();
+        } else if (block.chainid == 56) {
+            _addOraclesForBNBChain();
+        }
     }
 
     function _approveTokenToDex(address _token, address _dex) internal {
@@ -421,5 +433,22 @@ contract TokenSwapper is Ownable {
 
     function getAssetOracle(address _token) external view returns (address) {
         return _tokenOracles[_token];
+    }
+
+    function _addOraclesForBNBChain() internal {
+        _tokenOracles[USDC_BNB] = USDC_USD_Feed_BNB;
+        _tokenOracles[USDX] = USDX_USD_Feed;
+        _tokenOracles[USDe_BNB] = USDe_USD_Feed_BNB;
+        _tokenOracles[USR_BNB] = USR_USD_Feed_BNB;
+    }
+
+    function _addOraclesForEthereum() internal {
+        _tokenOracles[usdt] = USDT_USD_Feed;
+        _tokenOracles[usdc] = USDC_USD_Feed;
+        _tokenOracles[usds] = USDS_USD_Feed;
+        _tokenOracles[usde] = USDe_USD_FEED;
+        _tokenOracles[USR] = USR_USD_FEED;
+        _tokenOracles[USDf] = USDf_USD_FEED;
+        _tokenOracles[GHO] = GHO_USD_FEED;
     }
 }

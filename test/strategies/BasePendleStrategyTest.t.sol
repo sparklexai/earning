@@ -43,10 +43,10 @@ contract BasePendleStrategyTest is TestUtils {
 
     // check https://github.com/pendle-finance/pendle-core-v2-public/blob/main/deployments/1-core.json
     IPRouterStatic pendleRouterStatic = IPRouterStatic(0x263833d47eA3fA4a30f269323aba6a107f9eB14C);
-    address constant pendleRouterV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
+    address pendleRouterV4 = 0x888888888889758F76e7103c6CbF23ABbF58F946;
 
     // mainnet chainlink aggregator
-    address constant USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
+    address USDC_USD_Feed = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
 
     ///////////////////////////////
     // mainnet pendle PT pools: active
@@ -55,19 +55,19 @@ contract BasePendleStrategyTest is TestUtils {
     IPPrincipalToken PT_ADDR1 = IPPrincipalToken(0x3b3fB9C57858EF816833dC91565EFcd85D96f634);
     address YT_ADDR1 = 0xb7E51D15161C49C823f3951D579DEd61cD27272B;
     IPMarketV3 MARKET_ADDR1 = IPMarketV3(0x4339Ffe2B7592Dc783ed13cCE310531aB366dEac);
-    address constant PT1_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
-    address constant YIELD_TOKEN_FEED1 = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961; //usde oracle
-    uint256 public constant USDC_TO_PT1_DUMMY_PRICE = 1010000000000000000; //1.01
-    address public constant UNDERLYING_YIELD_ADDR1 = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
+    address PT1_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address YIELD_TOKEN_FEED1 = 0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961; //usde oracle
+    uint256 public USDC_TO_PT1_DUMMY_PRICE = 1010000000000000000; //1.01
+    address public UNDERLYING_YIELD_ADDR1 = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
 
     // USDS AUG15 market
     IPPrincipalToken PT_ADDR2 = IPPrincipalToken(0xFfEc096c087C13Cc268497B89A613cACE4DF9A48);
     address YT_ADDR2 = 0x4EB0Bb058BCFEAc8a2b3c2fC3CaE2B8aD7fF7f6e;
     IPMarketV3 MARKET_ADDR2 = IPMarketV3(0xdacE1121e10500e9e29d071F01593fD76B000f08);
-    address constant PT2_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
-    address constant YIELD_TOKEN_FEED2 = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
-    uint256 public constant USDC_TO_PT2_DUMMY_PRICE = 1010000000000000000; //1.01
-    address public constant UNDERLYING_YIELD_ADDR2 = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
+    address PT2_Whale = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address YIELD_TOKEN_FEED2 = 0xfF30586cD0F29eD462364C7e81375FC0C71219b1;
+    uint256 public USDC_TO_PT2_DUMMY_PRICE = 1010000000000000000; //1.01
+    address public UNDERLYING_YIELD_ADDR2 = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
 
     ///////////////////////////////
     // target selectors for pendle router swap calldata
