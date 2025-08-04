@@ -36,6 +36,9 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     event WithdrawFromAAVE(address indexed _caller, uint256 _withdrawn, uint256 _health);
 
     constructor(ERC20 token, address vault) BaseSparkleXStrategy(token, vault) {
+        if (block.chainid == 56) {
+            _switchToBNBChain();
+        }
         _approveToken(address(token), address(aavePool));
         _approveToken(address(token), address(sparkPool));
     }
@@ -43,7 +46,10 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     function setAAVEHelper(address _newHelper) external onlyOwner {
         if (
             _newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)
-                || address(AAVEHelper(_newHelper)._borrowToken()) != address(_asset)
+                || (
+                    address(AAVEHelper(_newHelper)._borrowToken()) != address(_asset)
+                        && address(AAVEHelper(_newHelper)._supplyToken()) != address(_asset)
+                )
         ) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
@@ -51,7 +57,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         if (_aaveHelper != Constants.ZRO_ADDR) {
             _revokeTokenApproval(address(AAVEHelper(_aaveHelper)._supplyToken()), _aaveHelper);
             _revokeTokenApproval(address(AAVEHelper(_aaveHelper)._borrowToken()), _aaveHelper);
-            _approveDelegationToAAVEHelper(0);
+            _approveDelegationToAAVEHelper(0, AAVEHelper(_aaveHelper)._eMode());
         }
 
         emit AAVEHelperChanged(_aaveHelper, _newHelper);
@@ -171,7 +177,10 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
             if (_assetAmount > 0) {
                 _leveragePosition(_assetAmount, _borrowAmount, _extraAction);
             } else {
-                _returnAssetToVault(_borrowFromAAVE(_borrowAmount));
+                uint256 _borrowed = _borrowFromAAVE(_borrowAmount);
+                if (address(AAVEHelper(_aaveHelper)._borrowToken()) == address(_asset)) {
+                    _returnAssetToVault(_borrowed);
+                }
             }
         }
         emit MakeInvest(msg.sender, _borrowAmount, _assetAmount);
@@ -300,16 +309,31 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function _delegateCreditToHelper() internal {
-        address variableDebtToken = _approveDelegationToAAVEHelper(type(uint256).max);
         uint8 _eMode = AAVEHelper(_aaveHelper)._eMode();
-        aavePool.setUserEMode(_eMode);
+        address variableDebtToken = _approveDelegationToAAVEHelper(type(uint256).max, _eMode);
+        if (aavePool.getUserEMode(address(this)) != _eMode) {
+            aavePool.setUserEMode(_eMode);
+        }
         emit DebtDelegateToAAVEHelper(address(this), _aaveHelper, variableDebtToken, _eMode);
     }
 
-    function _approveDelegationToAAVEHelper(uint256 _allowance) internal returns (address) {
-        address variableDebtToken =
-            aavePool.getReserveVariableDebtToken(address(AAVEHelper(_aaveHelper)._borrowToken()));
+    function _approveDelegationToAAVEHelper(uint256 _allowance, uint8 _eMode) internal returns (address) {
+        address variableDebtToken;
+        if (block.chainid == 56 && _eMode == 0) {
+            DataTypes.ReserveDataLegacy memory _reserveData =
+                aavePool.getReserveData(address(AAVEHelper(_aaveHelper)._borrowToken()));
+            variableDebtToken = _reserveData.variableDebtTokenAddress;
+        } else {
+            variableDebtToken = aavePool.getReserveVariableDebtToken(address(AAVEHelper(_aaveHelper)._borrowToken()));
+        }
         IVariableDebtToken(variableDebtToken).approveDelegation(_aaveHelper, _allowance);
         return variableDebtToken;
+    }
+
+    function _switchToBNBChain() internal {
+        // https://docs.kinza.finance/resources/deployed-contracts/bnb-chain
+        aavePool = IPool(0xcB0620b181140e57D1C0D8b724cde623cA963c8C);
+        // https://aave.com/docs/resources/addresses
+        sparkPool = IPool(0x6807dc923806fE8Fd134338EABCA509979a7e0cB);
     }
 }

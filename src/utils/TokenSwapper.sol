@@ -86,6 +86,10 @@ contract TokenSwapper is Ownable {
     address public constant USDC_USD_Feed_BNB = 0x51597f405303C4377E36123cBc172b13269EA163;
     address public constant USDT_BNB = 0x55d398326f99059fF775485246999027B3197955;
     address public constant USDT_USD_Feed_BNB = 0xB97Ad0E74fa7d920791E90258A6E2085088b4320;
+    address public constant USD1_BNB = 0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d;
+    address public constant USD1_USD_Feed_BNB = 0xaD8b4e59A7f25B68945fAf0f3a3EAF027832FFB0;
+    address public constant FDUSD_BNB = 0xc5f0f7b66764F6ec8C8Dff7BA683102295E16409;
+    address public constant FDUSD_USD_Feed_BNB = 0x390180e80058A8499930F0c13963AD3E0d86Bfc9;
     address public constant USDX = 0xf3527ef8dE265eAa3716FB312c12847bFBA66Cef;
     address public constant USDe_BNB = 0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34;
     address public constant USR_BNB = 0x2492D0006411Af6C8bbb1c8afc1B0197350a79e9;
@@ -101,6 +105,7 @@ contract TokenSwapper is Ownable {
         address indexed inToken, address indexed outToken, address _receiver, uint256 _in, uint256 _out
     );
     event CallerWhitelisted(address indexed _caller, bool _whitelisted);
+    event TokenOracleChanged(address indexed _token, address _oldOracle, address _newOracle);
 
     constructor() Ownable(msg.sender) {
         if (block.chainid == 1) {
@@ -118,6 +123,11 @@ contract TokenSwapper is Ownable {
 
     function _revokeTokenApproval(address _token, address _spender) internal {
         SafeERC20.forceApprove(ERC20(_token), _spender, 0);
+    }
+
+    function setTokenOracle(address _token, address _oracle) external onlyOwner {
+        emit TokenOracleChanged(_token, _tokenOracles[_token], _oracle);
+        _tokenOracles[_token] = _oracle;
     }
 
     function setSlippage(uint256 _slippage) external onlyOwner {
@@ -149,6 +159,16 @@ contract TokenSwapper is Ownable {
     // Uniswap V3 related:
     // https://docs.uniswap.org/contracts/v3/guides/swaps/single-swaps
     ///////////////////////////////
+
+    function getOutTokenForUniPool(address _tokenIn, address _pool) public view returns (address) {
+        address token0 = IUniswapV3PoolImmutables(_pool).token0();
+        if (token0 == _tokenIn) {
+            return IUniswapV3PoolImmutables(_pool).token1();
+        } else {
+            return token0;
+        }
+    }
+
     function swapExactInWithUniswap(
         address inToken,
         address outToken,
@@ -227,6 +247,10 @@ contract TokenSwapper is Ownable {
         return _theory * Constants.TOTAL_BPS / SWAP_SLIPPAGE_BPS;
     }
 
+    function applySlippageRelax(uint256 _theory) public view returns (uint256) {
+        return _theory * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS;
+    }
+
     function _getCurvePoolIndex(address _twoTokenPool, address _token) internal view returns (uint256) {
         if (ICurvePool(_twoTokenPool).coins(0) == _token) {
             return 0;
@@ -287,7 +311,7 @@ contract TokenSwapper is Ownable {
             _inputToken,
             _outputToken,
             _inAmount,
-            (_minOut * SWAP_SLIPPAGE_BPS / Constants.TOTAL_BPS),
+            applySlippageRelax(_minOut),
             _swapCallData,
             _receiverDecoded
         );
@@ -337,7 +361,8 @@ contract TokenSwapper is Ownable {
         returns (uint256)
     {
         return pendleOracle.getPtToSyRate(
-            _pendleMarket, twapDurationInSeconds > PENDLE_ORACLE_TWAP ? twapDurationInSeconds : PENDLE_ORACLE_TWAP
+            _pendleMarket,
+            twapDurationInSeconds //> PENDLE_ORACLE_TWAP ? twapDurationInSeconds : PENDLE_ORACLE_TWAP
         );
     }
 
@@ -420,6 +445,26 @@ contract TokenSwapper is Ownable {
     {
         return assetAmount * Constants.ONE_ETHER * Constants.convertDecimalToUnit(ERC20(ptToken).decimals())
             / (Constants.convertDecimalToUnit(ERC20(_assetToken).decimals()) * _ptPrice);
+    }
+
+    function convertAmountWithFeeds(
+        ERC20 _tokenFrom,
+        uint256 _fromAmount,
+        address _fromFeed,
+        ERC20 _tokenTo,
+        address _toFeed,
+        uint32 _fromHeartbeat,
+        uint32 _toHeartbeat
+    ) public view returns (uint256) {
+        (int256 _toP,, uint8 _toPDecimal) = getPriceFromChainLinkWithHeartbeat(_toFeed, _toHeartbeat);
+        (int256 _fromP,, uint8 _fromPDecimal) = getPriceFromChainLinkWithHeartbeat(_fromFeed, _fromHeartbeat);
+
+        return _fromAmount * uint256(_fromP) * Constants.convertDecimalToUnit(_toPDecimal)
+            * Constants.convertDecimalToUnit(ERC20(_tokenTo).decimals())
+            / (
+                Constants.convertDecimalToUnit(_tokenFrom.decimals()) * uint256(_toP)
+                    * Constants.convertDecimalToUnit(_fromPDecimal)
+            );
     }
 
     function _getReceiverFromPendleCalldata(bytes calldata _data) public pure returns (address) {
