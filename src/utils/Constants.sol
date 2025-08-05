@@ -27,6 +27,11 @@ library Constants {
      */
     address constant ZRO_ADDR = address(0);
 
+    /**
+     * @dev used as dummy salt.
+     */
+    bytes32 constant ZRO_SALT = 0x0000000000000000000000000000000000000000000000000000000000000000;
+
     function convertDecimalToUnit(uint256 decimal) public pure returns (uint256) {
         if (decimal == 18) {
             return ONE_ETHER;
@@ -96,6 +101,10 @@ library Constants {
     error PT_STILL_IN_USE();
     error ZERO_TO_SWAP_IN_PENDLE();
     error PT_NOT_MATCH_MARKET();
+
+    // errors in TokenSwapper
+    error WRONG_FLUID_CALLBACK();
+    error WRONG_FLUID_TOKEN();
 
     // errors in CollYieldAAVEStrategy
     error SPUSD_WITHDRAW_EXISTS();

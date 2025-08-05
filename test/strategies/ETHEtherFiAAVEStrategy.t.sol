@@ -521,7 +521,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
             _assertApproximateEq(
                 (_maxLeveraged * Constants.TOTAL_BPS / _newSupplied),
                 (_totalSupply * Constants.TOTAL_BPS / _netSupply),
-                BIGGER_TOLERANCE
+                COMP_TOLERANCE
             )
         );
 
@@ -673,8 +673,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         uint256 _timeElapsed = ONE_DAY_HEARTBEAT / 48;
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user1
-        (uint256 _assetVal1, uint256 _share1) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user1, _testVal1, 2 ether, 5 ether);
+        (uint256 _assetVal1,) = TestUtils._makeVaultDeposit(address(stkVault), _user1, _testVal1, 2 ether, 5 ether);
         _testVal1 = _assetVal1;
         _makeLoopingInvestment(10);
 
@@ -683,8 +682,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.warp(_currentTime + _timeElapsed);
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user2
-        (uint256 _assetVal2, uint256 _share2) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal2, 2 ether, 5 ether);
+        (uint256 _assetVal2,) = TestUtils._makeVaultDeposit(address(stkVault), _user2, _testVal2, 2 ether, 5 ether);
         _testVal2 = _assetVal2;
         _makeLoopingInvestment(10);
 
@@ -697,8 +695,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         vm.warp(_currentTime + _timeElapsed);
 
         // deposit and make investment by looping into Ether.Fi and AAVE from user3
-        (uint256 _assetVal3, uint256 _share3) =
-            TestUtils._makeVaultDeposit(address(stkVault), _user3, _testVal3, 2 ether, 5 ether);
+        (uint256 _assetVal3,) = TestUtils._makeVaultDeposit(address(stkVault), _user3, _testVal3, 2 ether, 5 ether);
         _testVal3 = _assetVal3;
         _makeLoopingInvestment(10);
 
@@ -718,14 +715,16 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
         _currentTime = block.timestamp;
         vm.warp(_currentTime + _timeElapsed);
 
-        // sugardaddy strategy to mock EtherFi yield
         uint256 _totalAssets = stkVault.totalAssets();
         (, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
         uint256 _flashloanFee = TestUtils._applyFlashLoanFee(aaveHelper, _debt);
         bytes memory EMPTY_CALLDATA;
 
+        // sugardaddy strategy to cover the accrued debt
+        uint256 _sugar = _totalAssets * 500 / Constants.TOTAL_BPS;
+        vm.deal(address(myStrategy), _sugar);
+
         // collect all from this strategy
-        vm.deal(address(myStrategy), _totalAssets * 500 / Constants.TOTAL_BPS);
         vm.startPrank(strategist);
         myStrategy.collectAll(EMPTY_CALLDATA);
         vm.stopPrank();
@@ -738,6 +737,13 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
 
         assertEq(0, myStrategy.assetsInCollection());
         uint256 _totalAssetsAfter = stkVault.totalAssets();
+        console.log("_totalAssets:%d,_totalAssetsAfter:%d,_sugar:%d", _totalAssets, _totalAssetsAfter, _sugar);
+        console.log(
+            "_flashloanFee:%d,_swapLoss:%d,_etherfiFee:%d",
+            _flashloanFee,
+            _activeWithdrawReqs[0][2],
+            _activeWithdrawReqs[0][3]
+        );
         assertTrue(
             _assertApproximateEq(
                 _totalAssets,

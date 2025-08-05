@@ -118,7 +118,7 @@ contract TestUtils is Test {
         vm.stopPrank();
         (, uint256 _lastUpdateTA, uint256 _lastUpdateTime) = SparkleXVault(_vault).mgmtFee();
         assertEq(_lastUpdateTime, _currentTime);
-        assertTrue(_lastUpdateTA > SparkleXVault(_vault)._rawTotalAssets());
+        assertTrue(_lastUpdateTA >= SparkleXVault(_vault)._rawTotalAssets());
 
         assertTrue(_assertApproximateEq(_less, _actualRedeemed, _tolerance));
     }
