@@ -52,6 +52,7 @@ contract ETHEtherFiAAVEStrategyTest is TestUtils {
     bytes32 swapCurveEventSignature = keccak256("SwapInCurve(address,address,address,uint256,uint256)");
 
     function setUp() public {
+        _createForkMainnet(uint256(vm.envInt("TESTNET_FORK_HEIGHT")));
         stkVault = new SparkleXVault(ERC20(wETH), "SparkleXVault", "SPXV");
         stkVOwner = stkVault.owner();
         _changeWithdrawFee(stkVOwner, address(stkVault), 0);

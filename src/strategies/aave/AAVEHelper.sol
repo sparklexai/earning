@@ -20,7 +20,8 @@ contract AAVEHelper is Ownable {
     ///////////////////////////////
 
     /**
-     * @dev leverage ratio in AAVE with looping supply and borrow.
+     * @dev leverage ratio in AAVE with looping supply and borrow OR
+     * @dev borrowing ratio in AAVE with respect to maximum allowed LTV
      */
     uint256 public LEVERAGE_RATIO_BPS = 9500;
 
@@ -56,18 +57,25 @@ contract AAVEHelper is Ownable {
     constructor(address strategy, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode)
         Ownable(msg.sender)
     {
+        if (block.chainid == 56) {
+            _switchToBNBChain();
+        }
         _strategy = strategy;
 
         _setTokensAndApprovals(supplyToken, borrowToken, supplyAToken);
 
         // Enable E Mode in AAVE for correlated assets
-        _setEMode(eMode);
+        if (eMode > 0) {
+            _setEMode(eMode);
+        }
 
         emit AAVEHelperCreated(_strategy, address(supplyToken), address(borrowToken), _eMode);
     }
 
     function _setEMode(uint8 eMode) internal {
-        aavePool.setUserEMode(eMode);
+        if (aavePool.getUserEMode(address(this)) != eMode) {
+            aavePool.setUserEMode(eMode);
+        }
         _eMode = eMode;
     }
 
@@ -166,8 +174,14 @@ contract AAVEHelper is Ownable {
      * @dev get maximum LTV specified by the AAVE E-Mode
      */
     function getMaxLTV() public view returns (uint256) {
-        DataTypes.CollateralConfig memory config = aavePool.getEModeCategoryCollateralConfig(_eMode);
-        uint256 _ltv = config.ltv;
+        uint256 _ltv = 0;
+        if (_eMode > 0) {
+            DataTypes.CollateralConfig memory config = aavePool.getEModeCategoryCollateralConfig(_eMode);
+            _ltv = config.ltv;
+        } else {
+            DataTypes.ReserveDataLegacy memory reserveData = aavePool.getReserveData(address(_supplyToken));
+            _ltv = _getReserveLTV(reserveData.configuration);
+        }
         require(_ltv < Constants.TOTAL_BPS, "wrong ltv!");
         return _ltv;
     }
@@ -224,7 +238,12 @@ contract AAVEHelper is Ownable {
 
     function getMaxLeverage(uint256 _amount) public view returns (uint256) {
         uint256 _maxLTV = getMaxLTV();
-        return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
+        if (block.chainid == 56 && _eMode == 0) {
+            // simple borrowing capped by max allowed LTV without eMode
+            return _amount * _maxLTV / Constants.TOTAL_BPS;
+        } else {
+            return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
+        }
     }
 
     function applyLeverageMargin(uint256 _max) public view returns (uint256) {
@@ -250,11 +269,19 @@ contract AAVEHelper is Ownable {
         }
 
         uint256 _safeLeveraged = getSafeLeveragedSupply(_initSupply);
+        uint256 _supplyToLeverage;
 
-        if (_safeLeveraged <= _initSupply + _debtInSupply) {
-            revert Constants.FAIL_TO_SAFE_LEVERAGE();
+        if (block.chainid == 56 && _eMode == 0) {
+            if (_safeLeveraged <= _debtInSupply) {
+                revert Constants.FAIL_TO_SAFE_LEVERAGE();
+            }
+            _supplyToLeverage = _safeLeveraged - _debtInSupply;
+        } else {
+            if (_safeLeveraged <= _initSupply + _debtInSupply) {
+                revert Constants.FAIL_TO_SAFE_LEVERAGE();
+            }
+            _supplyToLeverage = _safeLeveraged - _initSupply - _debtInSupply;
         }
-        uint256 _supplyToLeverage = _safeLeveraged - _initSupply - _debtInSupply;
 
         uint256 _toBorrow = BaseAAVEStrategy(_strategy)._convertSupplyToBorrow(_supplyToLeverage);
         _toBorrow = _toBorrow > _borrowAmount ? _borrowAmount : _toBorrow;
@@ -371,5 +398,18 @@ contract AAVEHelper is Ownable {
         uint256 _minFee = _useSpark ? _sparkFee : _aaveFee;
         address _flProvider = _useSpark ? address(sparkPool) : address(aavePool);
         return (_useSpark, _flProvider, _minFee);
+    }
+
+    function _switchToBNBChain() internal {
+        // https://docs.kinza.finance/resources/deployed-contracts/bnb-chain
+        aavePool = IPool(0xcB0620b181140e57D1C0D8b724cde623cA963c8C);
+        aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
+        // https://aave.com/docs/resources/addresses
+        sparkPool = IPool(0x6807dc923806fE8Fd134338EABCA509979a7e0cB);
+    }
+
+    function _getReserveLTV(DataTypes.ReserveConfigurationMap memory config) internal pure returns (uint256) {
+        // bits 0-15
+        return (config.data >> 0) & 0xFFFF;
     }
 }

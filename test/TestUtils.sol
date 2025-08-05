@@ -17,7 +17,7 @@ import {AAVEHelper} from "../src/strategies/aave/AAVEHelper.sol";
 contract TestUtils is Test {
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    address payable wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     bytes32 internal nextUser = keccak256(abi.encodePacked("user address"));
     uint256 constant wETHVal = 10000 ether;
@@ -27,8 +27,9 @@ contract TestUtils is Test {
     uint256 constant MAX_STRATEGIES_NUM = 8;
     EnumerableSet.AddressSet private _testUsers;
     uint256 constant MAX_ETH_ALLOWED = 1000000 * Constants.ONE_ETHER;
-    uint256 constant MAX_USDC_ALLOWED = Constants.ONE_ETHER;
+    uint256 MAX_USDC_ALLOWED = Constants.ONE_ETHER;
     uint32 constant ONE_DAY_HEARTBEAT = 86400;
+    uint32 constant BNB_HEARTBEAT = 900;
 
     function _getSugarUser() internal returns (address payable) {
         address payable _user = _getNextUserAddress();
@@ -341,6 +342,15 @@ contract TestUtils is Test {
         uint256 forkId = vm.createFork(MAINNET_RPC, _blockHight);
         vm.selectFork(forkId);
         assertEq(_blockHight, block.number);
+        assertEq(block.chainid, 1);
+    }
+
+    function _createForkBNBChain(uint256 _blockHight) internal {
+        string memory BNB_RPC = vm.envString("TESTNET_RPC_BNB");
+        uint256 forkId = vm.createFork(BNB_RPC, _blockHight);
+        vm.selectFork(forkId);
+        assertEq(_blockHight, block.number);
+        assertEq(block.chainid, 56);
     }
 
     function _findTargetEvent(Vm.Log[] memory logs, bytes32 _targetEvent) internal view returns (bool) {

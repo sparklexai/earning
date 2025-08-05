@@ -96,4 +96,8 @@ library Constants {
     error PT_STILL_IN_USE();
     error ZERO_TO_SWAP_IN_PENDLE();
     error PT_NOT_MATCH_MARKET();
+
+    // errors in CollYieldAAVEStrategy
+    error SPUSD_WITHDRAW_EXISTS();
+    error BORROW_SWAP_POOL_INVALID();
 }
