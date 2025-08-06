@@ -65,10 +65,6 @@ contract StakedUSDeAAVEStrategy is BaseAAVEStrategy {
     }
 
     function _swapFromUSDCToStakedUSDe(uint256 _toSwap) internal returns (uint256) {
-        _toSwap = _capAmountByBalance(ERC20(USDC), _toSwap, false);
-        if (_toSwap == 0) {
-            return _toSwap;
-        }
         uint256 _minOutIntermediate = _convertAssetToBorrow(_toSwap);
         _approveToken(USDC, _swapper);
         uint256 _intermediate = TokenSwapper(_swapper).singleSwapViaFluid(
@@ -111,17 +107,10 @@ contract StakedUSDeAAVEStrategy is BaseAAVEStrategy {
     function _swapFromStakedUSDeToUSDTByOutput(uint256 _targetOutput) internal returns (uint256) {
         uint256 _expectedIn = _convertBorrowToSupply(_targetOutput);
         uint256 _cappedIn = _capAmountByBalance(ERC20(sUSDe), _expectedIn, true);
-        if (_cappedIn == 0) {
-            return _cappedIn;
-        }
         return _swapFromStakedUSDeToUSDT(_cappedIn);
     }
 
     function _swapFromUSDTToStakedUSDe(uint256 _toSwap) internal returns (uint256) {
-        _toSwap = _capAmountByBalance(ERC20(USDT), _toSwap, false);
-        if (_toSwap == 0) {
-            return _toSwap;
-        }
         uint256 _minOut = _convertBorrowToSupply(_toSwap);
         _approveToken(USDT, _swapper);
         return TokenSwapper(_swapper).singleSwapViaFluid(USDT, sUSDe, false, FLUID_sUSDe_USDT_POOL, _toSwap, _minOut);
@@ -324,7 +313,7 @@ contract StakedUSDeAAVEStrategy is BaseAAVEStrategy {
         _approveToken(address(_borrowToken), address(sparkPool));
 
         if (_lev) {
-            // Leverage: use flashloan to supply borrowed token to AAVEHelper
+            // Leverage: use flashloan to supply borrowed token to AAVE
             _supplyToAAVE(
                 _swapFromUSDTToStakedUSDe(_capAmountByBalance(_borrowToken, amount, false))
                     + _supplyToken.balanceOf(address(this))
@@ -342,7 +331,8 @@ contract StakedUSDeAAVEStrategy is BaseAAVEStrategy {
                 _swapBorrowToVault(_borrowResidue);
             }
         } else {
-            // Deleverage: use flashloan to clear debt in AAVE and then withdraw collateral from AAVE to swap for asset
+            // Deleverage: use flashloan to clear debt in AAVE
+            // and then withdraw collateral from AAVE to swap for asset
             // and lastly repay flashloan
             if (_expected == 0) {
                 // redeem everything

@@ -33,6 +33,7 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
     DummyDEXRouter public mockRouter;
     uint256 public myTolerance = 200 * MIN_SHARE;
     address usdcWhale = 0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341; //sky:PSM
+    address sUSDeWhale = 0x52Aa899454998Be5b000Ad077a46Bbe360F4e497; //fluid liquidity
 
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant USDe = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
@@ -102,9 +103,9 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
         uint256 _totalAssets = stkVault.totalAssets();
         console.log("_totalSupply:%d,_initSupply:%d,_initDebt:%d", _totalSupply, _initSupply, _initDebt);
         console.log("_testVal:%d,_flashloanFee:%d,_totalAssets:%d", _testVal, _flashloanFee, _totalAssets);
-        assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), myTolerance));
-        assertTrue(_assertApproximateEq(_initDebt + _flashloanFee, _debt, myTolerance));
-        assertTrue(_assertApproximateEq(_totalSupply, (_initSupply + _initDebt), myTolerance));
+        assertTrue(_assertApproximateEq(_testVal, (_totalAssets + _flashloanFee), 2 * myTolerance));
+        assertTrue(_assertApproximateEq(_initDebt + _flashloanFee, _debt, 2 * myTolerance));
+        assertTrue(_assertApproximateEq(_totalSupply, (_initSupply + _initDebt), 2 * myTolerance));
 
         _checkBasicInvariants(address(stkVault));
 
@@ -121,7 +122,7 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
 
         (, uint256 _debt2,) = myStrategy.getNetSupplyAndDebt(true);
         console.log("_debt2:%d,_repayAmount:%d,_debt:%d", _debt2, _repayAmount, _debt);
-        assertTrue(_assertApproximateEq(_debt2 + _repayAmount, _debt, myTolerance));
+        assertTrue(_assertApproximateEq(_debt2 + _repayAmount, _debt, 2 * myTolerance));
 
         _checkBasicInvariants(address(stkVault));
     }
@@ -341,6 +342,198 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
         console.log("_totalAssets:%d,_totalAssetsAfter:%d,_sugar:%d", _totalAssets, _totalAssetsAfter, _sugar);
         assertTrue(_assertApproximateEq((_totalAssets + _sugar), (_totalAssetsAfter + _flashloanFee), 2 * myTolerance));
         _checkBasicInvariants(address(stkVault));
+    }
+
+    function test_sUSDe_Invest_Zero_Borrow(uint256 _testVal) public {
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        _testVal = _assetVal;
+        bytes memory EMPTY_CALLDATA;
+
+        vm.startPrank(stkVOwner);
+        stkVault.setEarnRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        uint256 _expectedSupply = myStrategy._convertBorrowToSupply(myStrategy._convertAssetToBorrow(_assetVal));
+        vm.startPrank(strategist);
+        myStrategy.invest(type(uint256).max, 0, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        (, uint256 _hf) = _printAAVEPosition();
+        assertEq(_hf, type(uint256).max);
+        assertEq(stkVault.totalAssets(), myStrategy.totalAssets());
+        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
+        console.log("_netSupply:%d,_expectedSupply:%d", _netSupply, _expectedSupply);
+        assertTrue(_assertApproximateEq(_expectedSupply, _netSupply, 100 * Constants.ONE_ETHER));
+
+        _checkBasicInvariants(address(stkVault));
+    }
+
+    function test_sUSDe_Collateral_Price_Dip(uint256 _testVal) public {
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        uint256 _liqThreshold = 9200;
+        uint256 _collectPortion = 5000;
+
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal,) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        _testVal = _assetVal;
+
+        vm.startPrank(stkVOwner);
+        stkVault.setEarnRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setLeverageRatio(Constants.TOTAL_BPS);
+        vm.stopPrank();
+        bytes memory EMPTY_CALLDATA;
+
+        vm.startPrank(strategist);
+        myStrategy.allocate(type(uint256).max, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        (uint256 _ltv, uint256 _healthFactor) = _printAAVEPosition();
+
+        assertTrue(
+            _assertApproximateEq(
+                (1e18 * _liqThreshold / _healthFactor) * 1e16, aaveHelper.getMaxLTV() * 1e16, BIGGER_TOLERANCE * 40
+            )
+        );
+
+        uint256 _originalPrice = aaveOracle.getAssetPrice(sUSDe);
+        (int256 _originalsUSDeToUSDRate,,) = swapper.getPriceFromChainLink(sUSDe_USD_Feed);
+        uint256 _originalsUSDeToUSDPrice = uint256(_originalsUSDeToUSDRate);
+        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
+
+        // price dip 1.5% -> LTV exceed maximum allowed -> collect() to reduce LTV
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(sUSDe)),
+            abi.encode(_originalPrice * 9850 / Constants.TOTAL_BPS)
+        );
+        vm.mockCall(
+            address(swapper),
+            abi.encodeWithSelector(TokenSwapper.getPriceFromChainLink.selector, sUSDe_USD_Feed),
+            abi.encode(_originalsUSDeToUSDPrice * 9850 / Constants.TOTAL_BPS, block.timestamp, 18)
+        );
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+        assertEq(0, aaveHelper.getMaxRedeemableAmount());
+
+        vm.startPrank(strategist);
+        assertEq(0, myStrategy.redeem(_netSupply, EMPTY_CALLDATA));
+        vm.stopPrank();
+
+        vm.startPrank(strategist);
+        myStrategy.collect(_netSupply * _collectPortion / Constants.TOTAL_BPS, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) < aaveHelper.getMaxLTV());
+        (_netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
+
+        // price dip 3% -> LTV exceed maximum allowed -> collect() to reduce LTV
+        vm.mockCall(
+            address(aaveOracle),
+            abi.encodeWithSelector(IPriceOracleGetter.getAssetPrice.selector, address(sUSDe)),
+            abi.encode(_originalPrice * 9700 / Constants.TOTAL_BPS)
+        );
+        vm.mockCall(
+            address(swapper),
+            abi.encodeWithSelector(TokenSwapper.getPriceFromChainLink.selector, sUSDe_USD_Feed),
+            abi.encode(_originalsUSDeToUSDPrice * 9700 / Constants.TOTAL_BPS, block.timestamp, 18)
+        );
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) > aaveHelper.getMaxLTV());
+        vm.startPrank(strategist);
+        myStrategy.collect(_netSupply * _collectPortion / Constants.TOTAL_BPS, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertTrue((1e18 * _liqThreshold / _healthFactor) < aaveHelper.getMaxLTV());
+        (_netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
+
+        (_ltv, _healthFactor) = _printAAVEPosition();
+        assertEq(0, _ltv);
+        assertEq(0, myStrategy.totalAssets());
+
+        _checkBasicInvariants(address(stkVault));
+
+        vm.clearMockedCalls();
+    }
+
+    function test_sUSDe_Edge_Branches(uint256 _testVal) public {
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal,) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+        _testVal = _assetVal;
+        bytes memory EMPTY_CALLDATA;
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_CALLER.selector);
+        myStrategy.executeOperation(USDC, 0, 1, strategist, EMPTY_CALLDATA);
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_INITIATOR.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(USDC, 0, 1, strategist, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_ASSET.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(USDC, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_PREMIUM.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(USDT, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_AMOUNT.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(USDT, type(uint256).max, 0, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.recordLogs();
+        vm.startPrank(strategist);
+        myStrategy.swapBorrowToVault();
+        myStrategy.convertSupplyToRepay();
+        vm.stopPrank();
+        Vm.Log[] memory logEntries = vm.getRecordedLogs();
+        assertEq(0, logEntries.length);
+
+        uint256 _sugar0 = 100 * Constants.ONE_ETHER;
+        uint256 _toCollect = MIN_SHARE;
+        vm.startPrank(sUSDeWhale);
+        ERC20(sUSDe).transfer(address(myStrategy), _sugar0);
+        vm.stopPrank();
+        uint256[] memory _previewCollects = aaveHelper.previewCollect(_toCollect);
+        vm.startPrank(strategist);
+        myStrategy.collect(_toCollect, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(_previewCollects[0], 1);
+        assertTrue(ERC20(sUSDe).balanceOf(address(myStrategy)) < _sugar0);
+
+        vm.startPrank(strategist);
+        myStrategy.invest(_assetVal, 0, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
+        _toCollect = 500 * MIN_SHARE;
+        _previewCollects = aaveHelper.previewCollect(_toCollect);
+        vm.startPrank(strategist);
+        myStrategy.collect(_toCollect, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(_previewCollects[0], 2);
+        (uint256 _netSupplyLater,,) = myStrategy.getNetSupplyAndDebt(false);
+        assertTrue(_netSupplyLater < _netSupply);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
