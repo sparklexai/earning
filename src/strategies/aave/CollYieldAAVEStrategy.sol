@@ -26,7 +26,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
-    uint32 public constant FEED_HEARTBEAT = 899;
+    uint32 public constant FEED_HEARTBEAT = 901;
     SparkleXVault public spUSDVault;
     address public _assetFeed;
     mapping(address => uint32) public _feedHeartbeats;
@@ -58,13 +58,30 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
         spUSDVault = SparkleXVault(_spUSD);
+        _approveToken(_spUSD, _spUSD);
+        _approveToken(SparkleXVault(_spUSD).asset(), _spUSD);
         _assetFeed = assetFeed;
         setFeedHeartBeat(SparkleXVault(vault).asset(), _assetFeedHeartbeat);
     }
 
     function setBorrowToSPUSDPool(address _newPool, address _newIntermediatePool) public onlyOwner {
+        if (_borrowedToSPUSDPool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDPool, false);
+        }
+        if (_borrowedToSPUSDIntermediatePool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDIntermediatePool, false);
+        }
+
         _borrowedToSPUSDPool = _newPool;
+        if (_newPool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDPool, true);
+        }
+
         _borrowedToSPUSDIntermediatePool = _newIntermediatePool;
+        if (_newIntermediatePool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDIntermediatePool, true);
+        }
+
         emit BorrowedToSPUSDPoolChanged(_newPool, _newIntermediatePool);
     }
 
@@ -99,7 +116,10 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         return spUSDVault.deposit(_toDeposit, address(this));
     }
 
-    function _requestWithdrawalFromSpUSD(uint256 _toWithdrawSpUSD) internal returns (uint256) {
+    /*
+     * @dev withdraw investment from spUSD
+     */
+    function requestWithdrawalFromSpUSD(uint256 _toWithdrawSpUSD) public onlyStrategistOrOwner returns (uint256) {
         if (getPendingWithdrawSpUSD() > 0) {
             revert Constants.SPUSD_WITHDRAW_EXISTS();
         }
@@ -125,8 +145,9 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         internal
         override
     {
-        _prepareSupplyFromAsset(_assetAmount, _extraAction);
+        uint256 _toSupply = _prepareSupplyFromAsset(_assetAmount, _extraAction);
         uint256 _safeToBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(0, _borrowAmount);
+        _supplyToAAVE(_toSupply);
         _borrowFromAAVE(_safeToBorrow);
         _depositToSpUSD(AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this)));
     }
@@ -214,7 +235,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             _toClaimFromSpUSD =
                 _capAmountByBalance(ERC20(address(spUSDVault)), spUSDVault.convertToShares(_spUSDAsset), true);
         }
-        _requestWithdrawalFromSpUSD(_toClaimFromSpUSD);
+        requestWithdrawalFromSpUSD(_toClaimFromSpUSD);
     }
 
     ///////////////////////////////
@@ -244,7 +265,11 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     }
 
     function _convertSupplyToBorrow(uint256 _supplyAmount) public view override returns (uint256) {
-        return _convertAmount(address(_asset), _supplyAmount, address(AAVEHelper(_aaveHelper)._borrowToken()));
+        return _convertAmount(
+            address(AAVEHelper(_aaveHelper)._supplyToken()),
+            _supplyAmount,
+            address(AAVEHelper(_aaveHelper)._borrowToken())
+        );
     }
 
     function _convertBorrowToAsset(uint256 _borrowAmount) public view override returns (uint256) {
@@ -257,7 +282,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         return TokenSwapper(_swapper).convertAmountWithFeeds(
             ERC20(_fromToken),
             _fromAmount,
-            TokenSwapper(_swapper).getAssetOracle(_fromToken),
+            _fromToken == address(_asset) ? _assetFeed : TokenSwapper(_swapper).getAssetOracle(_fromToken),
             ERC20(_toToken),
             _toToken == address(_asset) ? _assetFeed : TokenSwapper(_swapper).getAssetOracle(_toToken),
             _fromHeartbeat,
@@ -302,7 +327,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             if (!_borrowSwapPools[_intermediatePool]) {
                 revert Constants.BORROW_SWAP_POOL_INVALID();
             }
-            // swap from borrow token -> intermediate token
+            // from token -> intermediate token
             address _intermediateToken = TokenSwapper(_swapper).getOutTokenForUniPool(_fromToken, _intermediatePool);
             uint256 _expectedIntermediateAmount = TokenSwapper(_swapper).applySlippageRelax(
                 _convertAmount(_fromToken, _fromTokenAmount, _intermediateToken)
@@ -311,7 +336,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
                 _fromToken, _intermediateToken, _intermediatePool, _fromTokenAmount, _expectedIntermediateAmount
             );
 
-            // swap from intermediate token -> asset token
+            // intermediate token -> asset token
             address _outToken = TokenSwapper(_swapper).getOutTokenForUniPool(_intermediateToken, _assetPool);
             uint256 _outExpected = TokenSwapper(_swapper).applySlippageRelax(
                 _convertAmount(_intermediateToken, _intermediateAmount, _outToken)

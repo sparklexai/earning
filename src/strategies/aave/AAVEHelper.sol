@@ -236,10 +236,15 @@ contract AAVEHelper is Ownable {
         return (_cAmount, _dAmount, totalCollateralBase, totalDebtBase);
     }
 
+    /*
+     * @dev calculate the maximum allowed position size in supply token denomination:
+     * @dev   - for looping, it is the fully-leveraged supply in theory
+     * @dev   - for simple borrowing, it is the debt amount capped by LTV
+     */
     function getMaxLeverage(uint256 _amount) public view returns (uint256) {
         uint256 _maxLTV = getMaxLTV();
         if (block.chainid == 56 && _eMode == 0) {
-            // simple borrowing capped by max allowed LTV without eMode
+            // simple borrowing without eMode
             return _amount * _maxLTV / Constants.TOTAL_BPS;
         } else {
             return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
@@ -403,7 +408,7 @@ contract AAVEHelper is Ownable {
     function _switchToBNBChain() internal {
         // https://docs.kinza.finance/resources/deployed-contracts/bnb-chain
         aavePool = IPool(0xcB0620b181140e57D1C0D8b724cde623cA963c8C);
-        aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
+        aaveOracle = IAaveOracle(0xec203E7676C45455BF8cb43D28F9556F014Ab461);
         // https://aave.com/docs/resources/addresses
         sparkPool = IPool(0x6807dc923806fE8Fd134338EABCA509979a7e0cB);
     }
