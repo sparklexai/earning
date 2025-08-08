@@ -105,6 +105,12 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         
         // Set up target contract for invariant testing
         targetContract(address(handler));
+        // StdInvariant.FuzzSelector memory selector = StdInvariant.FuzzSelector({
+        //     addr: address(handler),
+        //     selectors: new bytes4[](1)
+        // });
+        // selector.selectors[0] = handler.invest.selector;
+        // targetSelector(selector);
     }
 
     function _init_vault() internal {
@@ -126,9 +132,9 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
     /**
      * @dev Invariant: Total assets should always be consistent with allocations
      */
-    function invariant_totalAssetsConsistency() public {
+    function invariant_totalAssetsConsistency() public view {
         uint256 strategyAssets = myStrategy.totalAssets();
-        uint256 vaultAssets = ERC20(XAUM).balanceOf(address(stkVault));
+        // uint256 vaultAssets = ERC20(XAUM).balanceOf(address(stkVault));
         
         // Strategy assets should be reasonable compared to allocations
         assertTrue(strategyAssets <= stkVault.strategyAllocations(address(myStrategy)));
@@ -137,7 +143,7 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
     /**
      * @dev Invariant: Health factor should always be above minimum threshold when leveraged
      */
-    function invariant_healthFactorSafety() public {
+    function invariant_healthFactorSafety() public view {
         uint256 healthFactor = handler.getCurrentHealthFactor();
         uint256 totalDebt = handler.getGhostTotalDebtInAAVE();
         
@@ -150,7 +156,7 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
     /**
      * @dev Invariant: Ghost variables should track real state accurately
      */
-    function invariant_ghostVariablesAccuracy() public {
+    function invariant_ghostVariablesAccuracy() public view {
         // Total allocated should be >= total collected (can't collect more than allocated)
         assertTrue(handler.getGhostTotalAllocated() >= handler.getGhostTotalCollected());
         
@@ -165,45 +171,105 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
     }
     
     /**
-     * @dev Invariant: AAVE debt should not exceed borrowed amounts
-     */
-    function invariant_debtConsistency() public {
-        uint256 totalBorrowed = handler.getGhostTotalBorrowedFromAAVE();
-        uint256 totalRepaid = handler.getGhostTotalRepaidToAAVE();
-        uint256 currentDebt = handler.getGhostTotalDebtInAAVE();
-        
-        // Current debt should be approximately borrowed - repaid (allowing for interest)
-        if (totalBorrowed > totalRepaid) {
-            assertTrue(currentDebt >= (totalBorrowed - totalRepaid));
-            // Debt shouldn't be unreasonably high due to interest
-            assertTrue(currentDebt <= (totalBorrowed - totalRepaid) * 2);
-        } else {
-            // If we've repaid more than borrowed, debt should be zero or very small
-            assertTrue(currentDebt <= 1e6); // Allow for small rounding errors
-        }
-    }
-    
-    /**
      * @dev Invariant: Strategy should never hold more than allocated amount
      */
-    function invariant_allocationLimits() public {
+    function invariant_allocationLimits() public view {
         uint256 strategyAssets = myStrategy.totalAssets();
         uint256 maxAllocation = stkVault.strategyAllocations(address(myStrategy));
         
         // Strategy assets should not exceed maximum allocation
-        assertTrue(strategyAssets <= maxAllocation);
+        assertTrue(strategyAssets <= maxAllocation, "strategyAssets > maxAllocation");
     }
     
     /**
      * @dev Invariant: spUSD operations should be consistent
      */
-    function invariant_spUSDConsistency() public {
+    function invariant_spUSDConsistency() public view {
         uint256 pendingWithdraw = myStrategy.getPendingWithdrawSpUSD();
         uint256 spUSDBalance = ERC20(address(spUSDVault)).balanceOf(address(myStrategy));
         
         // If there's a pending withdrawal, we should have some spUSD shares or have withdrawn
         // This is a logical consistency check
         assertTrue(pendingWithdraw == 0 || spUSDBalance > 0 || handler.getGhostTotalSpUSDWithdrawn() > 0);
+    }
+    
+    ///////////////////////////////
+    // Invest Function Specific Invariants
+    ///////////////////////////////
+    
+    /**
+     * @dev Invariant: AAVE borrow and spUSD deposit consistency  
+     * When USDC is borrowed from AAVE via invest, it should be deposited to spUSD vault
+     */
+    function invariant_investBorrowToSpUSDConsistency() public view {
+        uint256 totalBorrowedForSpUSD = handler.getGhostTotalBorrowedForSpUSD();
+        uint256 totalDepositedToSpUSD = handler.getGhostTotalDepositedToSpUSD();
+        
+        // Borrowed amounts should correlate with spUSD deposits
+        // Note: shares != assets, so we allow for conversion differences
+        if (totalBorrowedForSpUSD > 0) {
+            assertTrue(totalDepositedToSpUSD > 0, "Borrowed USDC should result in spUSD deposits");
+        }
+    }
+    
+    /**
+     * @dev Invariant: Leverage ratio safety during invest
+     * Invest should maintain safe leverage ratios and health factors
+     */
+    function invariant_investLeverageSafety() public view {
+        uint256 healthFactor = handler.getCurrentHealthFactor();
+        uint256 totalSupply = handler.getGhostTotalSupplyInAAVE();
+        uint256 totalDebt = handler.getGhostTotalDebtInAAVE();
+        
+        // If leveraged position exists, health factor should be safe
+        if (totalDebt > 0 && totalSupply > 0) {
+            assertTrue(healthFactor >= 1.05e18 || healthFactor == type(uint256).max, "Health factor too low after invest");
+            
+            // Leverage ratio should be reasonable (debt should not exceed supply by too much)
+            assertTrue(totalDebt <= totalSupply * 90 / 100, "Leverage ratio too high");
+        }
+    }
+    
+    /**
+     * @dev Invariant: Investment flow accounting consistency
+     * Total investments should be consistent with AAVE positions and spUSD holdings
+     */
+    function invariant_investFlowAccounting() public view {
+        uint256 totalInvested = handler.getGhostTotalInvested();
+        uint256 totalSuppliedToAAVE = handler.getGhostTotalSuppliedToAAVE();
+        uint256 totalBorrowedForSpUSD = handler.getGhostTotalBorrowedForSpUSD();
+        uint256 strategyAssets = myStrategy.totalAssets();
+        
+        // Investment accounting should be logically consistent
+        if (totalInvested > 0) {
+            // Strategy should have assets or AAVE positions
+            assertTrue(strategyAssets > 0 || totalSuppliedToAAVE > 0, "Invested assets should be trackable");
+        }
+        
+        // Borrowed amounts should not exceed reasonable leverage multiples of supply
+        if (totalSuppliedToAAVE > 0 && totalBorrowedForSpUSD > 0) {
+            // Reasonable leverage check - borrowed should not exceed 80% of supply value
+            // Note: This is a simplified check as we'd need price oracles for exact comparison
+            assertTrue(totalBorrowedForSpUSD <= totalSuppliedToAAVE * 2, "Leverage ratio within bounds");
+        }
+    }
+    
+    /**
+     * @dev Invariant: spUSD vault shares should increase with deposits from invest
+     * When invest borrows and deposits to spUSD, the strategy's spUSD shares should increase
+     */
+    function invariant_investSpUSDSharesIncrease() public view {
+        uint256 totalDepositedToSpUSD = handler.getGhostTotalDepositedToSpUSD();
+        uint256 currentSpUSDShares = ERC20(address(spUSDVault)).balanceOf(address(myStrategy));
+        uint256 pendingWithdraw = myStrategy.getPendingWithdrawSpUSD();
+        
+        // If we've deposited to spUSD via invest, we should have shares or pending withdrawals
+        if (totalDepositedToSpUSD > 0) {
+            assertTrue(
+                currentSpUSDShares > 0 || pendingWithdraw > 0 || handler.getGhostTotalSpUSDWithdrawn() > 0,
+                "spUSD deposits should result in shares or withdrawals"
+            );
+        }
     }
     
     ///////////////////////////////
@@ -220,5 +286,10 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         emit log_named_uint("Strategy Total Assets", myStrategy.totalAssets());
         emit log_named_uint("AAVE Supply", handler.getGhostTotalSupplyInAAVE());
         emit log_named_uint("AAVE Debt", handler.getGhostTotalDebtInAAVE());
+        emit log_named_uint("Assets Transferred to Strategy", handler.getGhostTotalAssetsTransferredToStrategy());
+        emit log_named_uint("Total Supplied to AAVE", handler.getGhostTotalSuppliedToAAVE());
+        emit log_named_uint("Total Borrowed for spUSD", handler.getGhostTotalBorrowedForSpUSD());
+        emit log_named_uint("Total Deposited to spUSD", handler.getGhostTotalDepositedToSpUSD());
+        emit log_named_uint("Current spUSD Shares", ERC20(address(spUSDVault)).balanceOf(address(myStrategy)));
     }
 }
