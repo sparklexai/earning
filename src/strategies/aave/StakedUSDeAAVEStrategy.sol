@@ -129,6 +129,10 @@ contract StakedUSDeAAVEStrategy is BaseAAVEStrategy {
         if (_repayAmount > 0) {
             _repayDebtToAAVE(_repayAmount);
         }
+        uint256 _residue = AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this));
+        if (_residue > 0) {
+            _swapBorrowToVault(_residue);
+        }
         return _repayAmount;
     }
 

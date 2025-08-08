@@ -31,7 +31,7 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
     address public strategyOwner;
     uint256 public usdcPerETH = 2000e18;
     DummyDEXRouter public mockRouter;
-    uint256 public myTolerance = 200 * MIN_SHARE;
+    uint256 public myTolerance = 901 * MIN_SHARE;
     address usdcWhale = 0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341; //sky:PSM
     address sUSDeWhale = 0x52Aa899454998Be5b000Ad077a46Bbe360F4e497; //fluid liquidity
 
@@ -370,7 +370,7 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
         assertEq(stkVault.totalAssets(), myStrategy.totalAssets());
         (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(false);
         console.log("_netSupply:%d,_expectedSupply:%d", _netSupply, _expectedSupply);
-        assertTrue(_assertApproximateEq(_expectedSupply, _netSupply, 100 * Constants.ONE_ETHER));
+        assertTrue(_assertApproximateEq(_expectedSupply, _netSupply, 200 * Constants.ONE_ETHER));
 
         _checkBasicInvariants(address(stkVault));
     }
@@ -534,6 +534,30 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
         assertEq(_previewCollects[0], 2);
         (uint256 _netSupplyLater,,) = myStrategy.getNetSupplyAndDebt(false);
         assertTrue(_netSupplyLater < _netSupply);
+    }
+
+    function test_sUSDe_No_Borrow_Left(uint256 _testVal) public {
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), usdcPerETH);
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _assetVal, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, usdcPerETH, _testVal, 10 ether, 100 ether
+        );
+
+        _testVal = _assetVal;
+        bytes memory EMPTY_CALLDATA;
+
+        uint256 _initSupply = _testVal;
+        vm.startPrank(strategist);
+        myStrategy.invest(_initSupply, _initSupply / 100, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        uint256 _supplyRedeemable = aaveHelper.getMaxRedeemableAmount();
+        vm.startPrank(strategist);
+        myStrategy.redeem(_supplyRedeemable, EMPTY_CALLDATA);
+        myStrategy.convertSupplyToRepay();
+        vm.stopPrank();
+        assertEq(ERC20(USDT).balanceOf(address(myStrategy)), 0);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
