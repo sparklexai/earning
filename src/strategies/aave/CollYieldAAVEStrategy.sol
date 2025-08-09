@@ -62,6 +62,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         _approveToken(SparkleXVault(_spUSD).asset(), _spUSD);
         _assetFeed = assetFeed;
         setFeedHeartBeat(SparkleXVault(vault).asset(), _assetFeedHeartbeat);
+        _loopingBorrow = false;
     }
 
     function setBorrowToSPUSDPool(address _newPool, address _newIntermediatePool) public onlyOwner {

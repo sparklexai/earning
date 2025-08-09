@@ -39,6 +39,7 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
     address USDC_USD_Feed_BNB = 0x51597f405303C4377E36123cBc172b13269EA163;
     address USDT_USD_Feed_BNB = 0xB97Ad0E74fa7d920791E90258A6E2085088b4320;
     address XAUM_Whale = 0xD5D2cAbE2ab21D531e5f96f1AeeF26D79f4b6583;
+    address USDC_Whale = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
     uint256 public xaumPerBNB = 25e16; // 1 BNB worth one quarter of 1 XAUM
     address XAUM_USDT_POOL = 0x497E224d7008fE47349035ddd98beDB773e1f4C5;
     address USDT_USDC_POOL = 0x92b7807bF19b7DDdf89b706143896d05228f3121;
@@ -76,8 +77,9 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         vm.startPrank(strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setAAVEHelper(address(aaveHelper));
-        //myStrategy.setBorrowToSPUSDPool(USDT_USDC_POOL, Constants.ZRO_ADDR);
         vm.stopPrank();
+
+        assertFalse(aaveHelper.loopingBorrow());
     }
 
     function test_XAUM_GetMaxLTV() public {
@@ -125,6 +127,82 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         (, uint256 _healthFactor3) = _printAAVEPosition();
         assertTrue(_healthFactor3 > _healthFactor);
         assertTrue(_spUSDBal > spUSDVault.balanceOf(address(myStrategy)));
+    }
+
+    function test_XAUM_Collect_Everything(uint256 _testVal) public {
+        _prepareSwapForMockRouter(mockRouter, wETH, XAUM, XAUM_Whale, xaumPerBNB);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), xaumPerBNB);
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _deposited, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, xaumPerBNB, _testVal, 4 ether, 20 ether
+        );
+
+        uint256 _totalAsset = stkVault.totalAssets();
+        uint256 _maxBorrow = myStrategy._convertSupplyToBorrow(aaveHelper.getSafeLeveragedSupply(_totalAsset));
+        bytes memory EMPTY_CALLDATA;
+        uint256 _maxLTV = aaveHelper.getMaxLTV();
+
+        vm.startPrank(strategist);
+        myStrategy.invest(_totalAsset, _maxBorrow, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        // sugardaddy some yield profit for spUSD
+        vm.startPrank(USDC_Whale);
+        ERC20(USDC_BNB).transfer(address(spUSDVault), spUSDVault.totalAssets() * 500 / Constants.TOTAL_BPS);
+        vm.stopPrank();
+
+        // collect all from spUSD and clear the debt to collect everything
+        vm.startPrank(strategist);
+        myStrategy.collectAll(EMPTY_CALLDATA);
+        myStrategy.claimAndRepay(type(uint256).max);
+        vm.stopPrank();
+        (, uint256 _healthFactor) = _printAAVEPosition();
+        assertEq(_healthFactor, type(uint256).max);
+        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
+        assertEq(_netSupply, myStrategy.totalAssets());
+    }
+
+    function test_XAUM_Collect_Portion(uint256 _testVal) public {
+        _prepareSwapForMockRouter(mockRouter, wETH, XAUM, XAUM_Whale, xaumPerBNB);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), xaumPerBNB);
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _deposited, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, xaumPerBNB, _testVal, 4 ether, 20 ether
+        );
+
+        uint256 _totalAsset = stkVault.totalAssets();
+        uint256 _maxBorrow = myStrategy._convertSupplyToBorrow(aaveHelper.getSafeLeveragedSupply(_totalAsset));
+        bytes memory EMPTY_CALLDATA;
+        uint256 _maxLTV = aaveHelper.getMaxLTV();
+
+        vm.startPrank(strategist);
+        myStrategy.invest(_totalAsset, _maxBorrow, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(true);
+
+        uint256 _portions = 5;
+        uint256 _collectPortion = _totalAsset / _portions;
+
+        // collect from spUSD and repay the debt to collect some collateral
+        for (uint256 i = 0; i < _portions; i++) {
+            if (i == _portions - 1) {
+                vm.startPrank(USDC_Whale);
+                ERC20(USDC_BNB).transfer(address(spUSDVault), spUSDVault.totalAssets() * 500 / Constants.TOTAL_BPS);
+                vm.stopPrank();
+            }
+            vm.startPrank(strategist);
+            myStrategy.collect(_collectPortion, EMPTY_CALLDATA);
+            myStrategy.claimAndRepay(type(uint256).max);
+            vm.stopPrank();
+            (, uint256 _healthFactor) = _printAAVEPosition();
+            if (_healthFactor == type(uint256).max) {
+                break;
+            }
+        }
+        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
+        assertEq(_netSupply, myStrategy.totalAssets());
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {

@@ -243,8 +243,8 @@ contract AAVEHelper is Ownable {
      */
     function getMaxLeverage(uint256 _amount) public view returns (uint256) {
         uint256 _maxLTV = getMaxLTV();
-        if (block.chainid == 56 && _eMode == 0) {
-            // simple borrowing without eMode
+        if (!loopingBorrow()) {
+            // NO LOOPing: simple borrowing
             return _amount * _maxLTV / Constants.TOTAL_BPS;
         } else {
             return _amount * _maxLTV / (Constants.TOTAL_BPS - _maxLTV);
@@ -276,7 +276,8 @@ contract AAVEHelper is Ownable {
         uint256 _safeLeveraged = getSafeLeveragedSupply(_initSupply);
         uint256 _supplyToLeverage;
 
-        if (block.chainid == 56 && _eMode == 0) {
+        if (!loopingBorrow()) {
+            // NO LOOPing: simple borrowing
             if (_safeLeveraged <= _debtInSupply) {
                 revert Constants.FAIL_TO_SAFE_LEVERAGE();
             }
@@ -378,11 +379,11 @@ contract AAVEHelper is Ownable {
         if (_inAssetDenomination) {
             _debt = totalDebtBase > 0 ? BaseAAVEStrategy(_strategy)._convertBorrowToAsset(_dAmount) : 0;
             _totalSupply = totalCollateralBase > 0 ? BaseAAVEStrategy(_strategy)._convertSupplyToAsset(_cAmount) : 0;
-            _netSupply = totalCollateralBase > 0 ? _totalSupply - _debt : 0;
+            _netSupply = totalCollateralBase > 0 ? (loopingBorrow() ? (_totalSupply - _debt) : _totalSupply) : 0;
         } else {
             _debt = totalDebtBase > 0 ? BaseAAVEStrategy(_strategy)._convertBorrowToSupply(_dAmount) : 0;
             _totalSupply = totalCollateralBase > 0 ? _cAmount : 0;
-            _netSupply = totalCollateralBase > 0 ? _cAmount - _debt : 0;
+            _netSupply = totalCollateralBase > 0 ? (loopingBorrow() ? (_cAmount - _debt) : _cAmount) : 0;
         }
     }
 
@@ -416,5 +417,9 @@ contract AAVEHelper is Ownable {
     function _getReserveLTV(DataTypes.ReserveConfigurationMap memory config) internal pure returns (uint256) {
         // bits 0-15
         return (config.data >> 0) & 0xFFFF;
+    }
+
+    function loopingBorrow() public view returns (bool) {
+        return BaseAAVEStrategy(_strategy)._loopingBorrow();
     }
 }

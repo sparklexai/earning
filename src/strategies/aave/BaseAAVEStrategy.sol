@@ -24,6 +24,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     // member storage
     ///////////////////////////////
     address public _aaveHelper;
+    bool public _loopingBorrow = true;
 
     ///////////////////////////////
     // events
@@ -41,6 +42,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         }
         _approveToken(address(token), address(aavePool));
         _approveToken(address(token), address(sparkPool));
+        _loopingBorrow = true;
     }
 
     function setAAVEHelper(address _newHelper) external onlyOwner {
@@ -319,13 +321,15 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
 
     function _approveDelegationToAAVEHelper(uint256 _allowance, uint8 _eMode) internal returns (address) {
         address variableDebtToken;
-        if (block.chainid == 56 && _eMode == 0) {
-            DataTypes.ReserveDataLegacy memory _reserveData =
-                aavePool.getReserveData(address(AAVEHelper(_aaveHelper)._borrowToken()));
+        address _borrowTokenAddr = address(AAVEHelper(_aaveHelper)._borrowToken());
+
+        try aavePool.getReserveVariableDebtToken(_borrowTokenAddr) returns (address _variableDebtAddr) {
+            variableDebtToken = _variableDebtAddr;
+        } catch {
+            DataTypes.ReserveDataLegacy memory _reserveData = aavePool.getReserveData(_borrowTokenAddr);
             variableDebtToken = _reserveData.variableDebtTokenAddress;
-        } else {
-            variableDebtToken = aavePool.getReserveVariableDebtToken(address(AAVEHelper(_aaveHelper)._borrowToken()));
         }
+
         IVariableDebtToken(variableDebtToken).approveDelegation(_aaveHelper, _allowance);
         return variableDebtToken;
     }
