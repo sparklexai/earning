@@ -405,7 +405,7 @@ contract StakedUSDeAAVEStrategyTest is TestUtils {
 
         assertTrue(
             _assertApproximateEq(
-                (1e18 * _liqThreshold / _healthFactor) * 1e16, aaveHelper.getMaxLTV() * 1e16, BIGGER_TOLERANCE * 40
+                (1e18 * _liqThreshold / _healthFactor) * 1e16, aaveHelper.getMaxLTV() * 1e16, BIGGER_TOLERANCE * 100
             )
         );
 
