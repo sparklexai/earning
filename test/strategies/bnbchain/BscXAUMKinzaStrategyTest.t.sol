@@ -15,6 +15,7 @@ import {IPriceOracleGetter} from "../../../interfaces/aave/IPriceOracleGetter.so
 import {TestUtils} from "../../TestUtils.sol";
 import {Constants} from "../../../src/utils/Constants.sol";
 import {DummyDEXRouter} from "../../mock/DummyDEXRouter.sol";
+import {DummyStrategy} from "../../mock/DummyStrategy.sol";
 
 // run this test with mainnet fork
 // forge test --fork-url <rpc_url> --match-path BscXAUMKinzaStrategyTest -vvv
@@ -77,6 +78,10 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         vm.startPrank(strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setAAVEHelper(address(aaveHelper));
+        vm.stopPrank();
+
+        vm.startPrank(swapper.owner());
+        swapper.setWhitelist(address(myStrategy), true);
         vm.stopPrank();
 
         assertFalse(aaveHelper.loopingBorrow());
@@ -147,10 +152,7 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         myStrategy.invest(_totalAsset, _maxBorrow, EMPTY_CALLDATA);
         vm.stopPrank();
 
-        // sugardaddy some yield profit for spUSD
-        vm.startPrank(USDC_Whale);
-        ERC20(USDC_BNB).transfer(address(spUSDVault), spUSDVault.totalAssets() * 500 / Constants.TOTAL_BPS);
-        vm.stopPrank();
+        _sugardaddySPUSD();
 
         // collect all from spUSD and clear the debt to collect everything
         vm.startPrank(strategist);
@@ -188,9 +190,7 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         // collect from spUSD and repay the debt to collect some collateral
         for (uint256 i = 0; i < _portions; i++) {
             if (i == _portions - 1) {
-                vm.startPrank(USDC_Whale);
-                ERC20(USDC_BNB).transfer(address(spUSDVault), spUSDVault.totalAssets() * 500 / Constants.TOTAL_BPS);
-                vm.stopPrank();
+                _sugardaddySPUSD();
             }
             vm.startPrank(strategist);
             myStrategy.collect(_collectPortion, EMPTY_CALLDATA);
@@ -205,11 +205,151 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         assertEq(_netSupply, myStrategy.totalAssets());
     }
 
+    function test_XAUM_spUSD_WaitClaim(uint256 _testVal) public {
+        _prepareSwapForMockRouter(mockRouter, wETH, XAUM, XAUM_Whale, xaumPerBNB);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), xaumPerBNB);
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _deposited, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, xaumPerBNB, _testVal, 4 ether, 20 ether
+        );
+
+        DummyStrategy _dummyStrategy = new DummyStrategy(USDC_BNB, address(spUSDVault));
+        vm.startPrank(spUSDVault.owner());
+        spUSDVault.addStrategy(address(_dummyStrategy), MAX_ETH_ALLOWED);
+        vm.stopPrank();
+
+        bytes memory EMPTY_CALLDATA;
+        vm.startPrank(strategist);
+        myStrategy.invest(_deposited, type(uint256).max, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        _dummyStrategy.allocate(spUSDVault.getAllocationAvailableForStrategy(address(_dummyStrategy)), EMPTY_CALLDATA);
+
+        _sugardaddySPUSD();
+
+        uint256 _spUSDVal = spUSDVault.balanceOf(address(myStrategy));
+        assertTrue(_spUSDVal > 0);
+        vm.startPrank(strategist);
+        myStrategy.collectAll(EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(_spUSDVal, myStrategy.getPendingWithdrawSpUSD());
+        assertEq(0, myStrategy.assetsInCollection());
+
+        vm.startPrank(address(_dummyStrategy));
+        ERC20(USDC_BNB).approve(address(_dummyStrategy), type(uint256).max);
+        _dummyStrategy.collectAll(EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        uint256 _worthDebtVal = spUSDVault.convertToAssets(_spUSDVal);
+        console.log("_spUSDVal:%d,_worthDebtVal:%d", _spUSDVal, _worthDebtVal);
+        (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(false);
+        uint256 _debtVal = myStrategy._convertAmount(XAUM, _debtInAsset, USDC_BNB);
+        console.log("_debtInAsset:%d,_debtVal:%d", _debtInAsset, _debtVal);
+        assertTrue(_worthDebtVal > _debtVal);
+
+        vm.startPrank(strategist);
+        myStrategy.claimWithdrawFromSpUSD();
+        myStrategy.claimAndRepay(type(uint256).max);
+        vm.stopPrank();
+        assertEq(0, myStrategy.getPendingWithdrawSpUSD());
+        (, uint256 _healthFactor) = _printAAVEPosition();
+        assertEq(_healthFactor, type(uint256).max);
+    }
+
+    function test_XAUM_Switch_Borrow(uint256 _testVal) public {
+        test_XAUM_Collect_Everything(_testVal);
+
+        bytes memory EMPTY_CALLDATA;
+
+        vm.startPrank(strategist);
+        myStrategy.collectAll(EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(0, myStrategy.totalAssets());
+        assertEq(spUSDVault.balanceOf(address(myStrategy)), 0);
+
+        // change from USDC to USDT as borrow token
+        vm.startPrank(aaveHelperOwner);
+        aaveHelper.setTokens(ERC20(XAUM), ERC20(USDT_BNB), kXAUM, 0);
+        vm.stopPrank();
+        assertEq(address(aaveHelper._borrowToken()), USDT_BNB);
+
+        vm.startPrank(strategist);
+        myStrategy.approveAllowanceForHelper();
+        myStrategy.setBorrowToSPUSDPool(USDT_USDC_POOL, Constants.ZRO_ADDR);
+        myStrategy.invest(
+            stkVault.getAllocationAvailableForStrategy(address(myStrategy)), type(uint256).max, EMPTY_CALLDATA
+        );
+        vm.stopPrank();
+        assertTrue(spUSDVault.balanceOf(address(myStrategy)) > 0);
+
+        _sugardaddySPUSD();
+
+        // collect all from spUSD and clear the debt to collect everything
+        vm.startPrank(strategist);
+        myStrategy.collectAll(EMPTY_CALLDATA);
+        myStrategy.claimAndRepay(type(uint256).max);
+        vm.stopPrank();
+        (, uint256 _healthFactor) = _printAAVEPosition();
+        assertEq(_healthFactor, type(uint256).max);
+    }
+
+    function test_XAUM_Compound(uint256 _testVal) public {
+        _prepareSwapForMockRouter(mockRouter, wETH, XAUM, XAUM_Whale, xaumPerBNB);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), xaumPerBNB);
+        address _user = TestUtils._getSugarUser();
+
+        (uint256 _deposited, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, xaumPerBNB, _testVal, 4 ether, 20 ether
+        );
+
+        uint256 _totalAsset = stkVault.totalAssets();
+        uint256 _maxBorrow = myStrategy._convertSupplyToBorrow(aaveHelper.getSafeLeveragedSupply(_totalAsset));
+        bytes memory EMPTY_CALLDATA;
+
+        vm.startPrank(strategist);
+        myStrategy.invest(_totalAsset, _maxBorrow, EMPTY_CALLDATA);
+        vm.stopPrank();
+        uint256 _spUSDVal = spUSDVault.balanceOf(address(myStrategy));
+        uint256 _spUSDWorth = spUSDVault.convertToAssets(_spUSDVal);
+
+        _sugardaddySPUSD();
+        uint256 _profit = spUSDVault.convertToAssets(_spUSDVal) - _spUSDWorth;
+        uint256 _profitShare = spUSDVault.convertToShares(_profit);
+
+        // prepare for compounding
+        uint256 _assetBal = ERC20(XAUM).balanceOf(address(myStrategy));
+        assertEq(_assetBal, 0);
+
+        vm.expectRevert(Constants.BORROW_SWAP_POOL_INVALID.selector);
+        vm.startPrank(strategist);
+        myStrategy.swapViaUniswap(address(spUSDVault), 1, USDT_USDC_POOL, XAUM_USDT_POOL);
+        vm.stopPrank();
+
+        vm.startPrank(strategist);
+        myStrategy.setBorrowSwapPoolApproval(USDT_USDC_POOL, true);
+        myStrategy.setBorrowSwapPoolApproval(XAUM_USDT_POOL, true);
+        uint256 _withdrawnProfit = myStrategy.requestWithdrawalFromSpUSD(_profitShare);
+        myStrategy.swapViaUniswap(USDC_BNB, _withdrawnProfit, USDT_USDC_POOL, XAUM_USDT_POOL);
+        vm.stopPrank();
+        _assetBal = ERC20(XAUM).balanceOf(address(myStrategy));
+        assertTrue(_assetBal > 0);
+    }
+
+    function test_XAUM_Edge_Cases(uint256 _testVal) public {}
+
     function _printAAVEPosition() internal view returns (uint256, uint256) {
         (uint256 _cBase, uint256 _dBase, uint256 _leftBase, uint256 _liqThresh, uint256 _ltv, uint256 _healthFactor) =
             aavePool.getUserAccountData(address(myStrategy));
         console.log("_ltv:%d,_liqThresh:%d,_healthFactor:%d", _ltv, _liqThresh, _healthFactor);
         console.log("_cBase:%d,_dBase:%d,_leftBase:%d", _cBase, _dBase, _leftBase);
         return (_ltv, _healthFactor);
+    }
+
+    function _sugardaddySPUSD() internal {
+        // sugardaddy some yield profit for spUSD
+        vm.startPrank(USDC_Whale);
+        ERC20(USDC_BNB).transfer(address(spUSDVault), spUSDVault.totalAssets() * 500 / Constants.TOTAL_BPS);
+        vm.stopPrank();
     }
 }

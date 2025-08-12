@@ -65,6 +65,15 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         _loopingBorrow = false;
     }
 
+    function approveAllowanceForHelper() external onlyOwner {
+        if (
+            _aaveHelper != Constants.ZRO_ADDR
+                && AAVEHelper(_aaveHelper)._borrowToken().allowance(address(this), _aaveHelper) == 0
+        ) {
+            _prepareAllowanceForHelper();
+        }
+    }
+
     function setBorrowToSPUSDPool(address _newPool, address _newIntermediatePool) public onlyOwner {
         if (_borrowedToSPUSDPool != Constants.ZRO_ADDR) {
             setBorrowSwapPoolApproval(_borrowedToSPUSDPool, false);
@@ -102,14 +111,16 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
 
     function _depositToSpUSD(uint256 _toDeposit) internal returns (uint256) {
         ERC20 _borrowToken = AAVEHelper(_aaveHelper)._borrowToken();
+        address _spUSDAssetToken = spUSDVault.asset();
         _toDeposit = _capAmountByBalance(_borrowToken, _toDeposit, false);
-        if (address(_borrowToken) != spUSDVault.asset()) {
+        if (address(_borrowToken) != _spUSDAssetToken) {
+            uint256 _assetBefore = ERC20(_spUSDAssetToken).balanceOf(address(this));
             if (_toDeposit > 0) {
                 _toDeposit = swapViaUniswap(
                     address(_borrowToken), _toDeposit, _borrowedToSPUSDIntermediatePool, _borrowedToSPUSDPool
                 );
             }
-            _toDeposit += ERC20(spUSDVault.asset()).balanceOf(address(this));
+            _toDeposit += _assetBefore;
         }
         if (_toDeposit == 0) {
             return _toDeposit;
@@ -317,6 +328,8 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             revert Constants.BORROW_SWAP_POOL_INVALID();
         }
 
+        _approveToken(_fromToken, address(_swapper));
+
         if (_intermediatePool == Constants.ZRO_ADDR) {
             address _outToken = TokenSwapper(_swapper).getOutTokenForUniPool(_fromToken, _assetPool);
             uint256 _outExpected =
@@ -338,6 +351,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             );
 
             // intermediate token -> asset token
+            _approveToken(_intermediateToken, address(_swapper));
             address _outToken = TokenSwapper(_swapper).getOutTokenForUniPool(_intermediateToken, _assetPool);
             uint256 _outExpected = TokenSwapper(_swapper).applySlippageRelax(
                 _convertAmount(_intermediateToken, _intermediateAmount, _outToken)

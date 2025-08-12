@@ -114,6 +114,8 @@ contract TokenSwapper is Ownable {
             _addOraclesForEthereum();
         } else if (block.chainid == 56) {
             _addOraclesForBNBChain();
+            // https://developer.pancakeswap.finance/contracts/v3/addresses
+            uniswapV3Router = ISwapRouter(0x1b81D678ffb9C0263b24A97847620C99d213eB14);
         }
     }
 
@@ -488,6 +490,7 @@ contract TokenSwapper is Ownable {
         _tokenOracles[USDe_BNB] = USDe_USD_Feed_BNB;
         _tokenOracles[USR_BNB] = USR_USD_Feed_BNB;
         _tokenOracles[XAUM_BNB] = XAUM_USD_Feed_BNB;
+        _tokenOracles[USDT_BNB] = USDT_USD_Feed_BNB;
     }
 
     function _addOraclesForEthereum() internal {
