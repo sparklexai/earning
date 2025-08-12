@@ -46,13 +46,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function setAAVEHelper(address _newHelper) external onlyOwner {
-        if (
-            _newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)
-                || (
-                    address(AAVEHelper(_newHelper)._borrowToken()) != address(_asset)
-                        && address(AAVEHelper(_newHelper)._supplyToken()) != address(_asset)
-                )
-        ) {
+        if (_newHelper == Constants.ZRO_ADDR || AAVEHelper(_newHelper)._strategy() != address(this)) {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
 
@@ -260,6 +254,13 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         virtual
         returns (uint256)
     {
+        return _assetAmount;
+    }
+
+    /**
+     * @dev convert _asset token with given amount in its denomination to borrow token denomination
+     */
+    function _convertAssetToBorrow(uint256 _assetAmount) public view virtual returns (uint256) {
         return _assetAmount;
     }
 
