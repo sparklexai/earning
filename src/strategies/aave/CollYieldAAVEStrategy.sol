@@ -157,9 +157,9 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         internal
         override
     {
-        uint256 _toSupply = _prepareSupplyFromAsset(_assetAmount, _extraAction);
+        _prepareSupplyFromAsset(_assetAmount, _extraAction);
         uint256 _safeToBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(0, _borrowAmount);
-        _supplyToAAVE(_toSupply);
+        _supplyToAAVE(AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)));
         _borrowFromAAVE(_safeToBorrow);
         _depositToSpUSD(AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this)));
     }

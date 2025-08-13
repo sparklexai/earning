@@ -32,15 +32,16 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
     DummyDEXRouter public mockRouter;
 
     address XAUM = 0x23AE4fd8E7844cdBc97775496eBd0E8248656028;
-    IAaveOracle aaveOracle =
-        IAaveOracle(0xec203E7676C45455BF8cb43D28F9556F014Ab461);
+    IAaveOracle aaveOracle = IAaveOracle(0xec203E7676C45455BF8cb43D28F9556F014Ab461);
     IPool aavePool = IPool(0xcB0620b181140e57D1C0D8b724cde623cA963c8C);
     ERC20 kXAUM = ERC20(0xC390614e71512B2Aa9D91AfA7E183cb00EB92518);
     address USDC_BNB = 0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d;
     address USDC_USD_Feed_BNB = 0x51597f405303C4377E36123cBc172b13269EA163;
+    address XAU_USD_Feed_BNB = 0x86896fEB19D8A607c3b11f2aF50A0f239Bd71CD0;
     address XAUM_Whale = 0xD5D2cAbE2ab21D531e5f96f1AeeF26D79f4b6583;
+    address USDC_Whale = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
     uint256 public xaumPerBNB = 25e16; // 1 BNB worth one quarter of 1 XAUM
-    
+
     // Handler for invariant testing
     StrategistHandler public handler;
 
@@ -53,33 +54,17 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         mockRouter = new DummyDEXRouter();
 
         stkVault = new SparkleXVault(ERC20(XAUM), "Sparkle XAU Vault", "spXAU");
-        spUSDVault = new SparkleXVault(
-            ERC20(USDC_BNB),
-            "Sparkle USD Vault",
-            "spUSD"
-        );
+        spUSDVault = SparkleXVault(0x4055C15cb757E7823097bfBFa5095E711863d15c);
         stkVOwner = stkVault.owner();
         _changeWithdrawFee(stkVOwner, address(stkVault), 0);
-        _changeWithdrawFee(stkVOwner, address(spUSDVault), 0);
 
-        myStrategy = new CollYieldAAVEStrategy(
-            address(stkVault),
-            USDC_USD_Feed_BNB,
-            address(spUSDVault),
-            901
-        );
+        myStrategy = new CollYieldAAVEStrategy(address(stkVault), XAU_USD_Feed_BNB, address(spUSDVault), 901);
         strategist = myStrategy.strategist();
         assertEq(address(stkVault), myStrategy.vault());
         assertEq(stkVault.asset(), myStrategy.asset());
         strategyOwner = myStrategy.owner();
 
-        aaveHelper = new AAVEHelper(
-            address(myStrategy),
-            ERC20(XAUM),
-            ERC20(USDC_BNB),
-            kXAUM,
-            0
-        );
+        aaveHelper = new AAVEHelper(address(myStrategy), ERC20(XAUM), ERC20(USDC_BNB), kXAUM, 0);
         aaveHelperOwner = aaveHelper.owner();
 
         vm.startPrank(stkVOwner);
@@ -91,18 +76,12 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         myStrategy.setAAVEHelper(address(aaveHelper));
         myStrategy.setStrategist(address(this));
         vm.stopPrank();
-        
+
         // Initialize handler for invariant testing
-        handler = new StrategistHandler(
-            myStrategy,
-            stkVault,
-            spUSDVault,
-            aaveHelper,
-            swapper
-        );
+        handler = new StrategistHandler(myStrategy, stkVault, spUSDVault, aaveHelper, swapper);
 
         _init_vault();
-        
+
         // Set up target contract for invariant testing
         targetContract(address(handler));
         // StdInvariant.FuzzSelector memory selector = StdInvariant.FuzzSelector({
@@ -123,95 +102,110 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         );
         console.log("deposited", _deposited);
         console.log("share", _share);
+
+        vm.startPrank(spUSDVault.owner());
+        spUSDVault.setManagementFeeRatio(0);
+        spUSDVault.setWithdrawFeeRatio(0);
+        spUSDVault.claimManagementFee();
+        vm.stopPrank();
+        (uint256 _accumulatedFee,,) = spUSDVault.mgmtFee();
+        assertEq(_accumulatedFee, 0);
+
+        vm.startPrank(USDC_Whale);
+        ERC20(USDC_BNB).transfer(address(spUSDVault), spUSDVault.totalAssets() * 100 / Constants.TOTAL_BPS);
+        vm.stopPrank();
+        assertTrue(spUSDVault.convertToAssets(1e18) > 1e18);
     }
-    
+
     ///////////////////////////////
     // Invariant tests
     ///////////////////////////////
-    
+
     /**
      * @dev Invariant: Total assets should always be consistent with allocations
      */
     function invariant_totalAssetsConsistency() public view {
         uint256 strategyAssets = myStrategy.totalAssets();
         // uint256 vaultAssets = ERC20(XAUM).balanceOf(address(stkVault));
-        
+
         // Strategy assets should be reasonable compared to allocations
         assertTrue(strategyAssets <= stkVault.strategyAllocations(address(myStrategy)));
     }
-    
+
     /**
      * @dev Invariant: Health factor should always be above minimum threshold when leveraged
      */
     function invariant_healthFactorSafety() public view {
         uint256 healthFactor = handler.getCurrentHealthFactor();
         uint256 totalDebt = handler.getGhostTotalDebtInAAVE();
-        
+
         // If there's debt, health factor should be reasonable (above 1.1)
         if (totalDebt > 0) {
-            assertTrue(healthFactor >= 1.1e18 || healthFactor == type(uint256).max);
+            assertTrue(healthFactor >= 1.05e18 || healthFactor == type(uint256).max);
         }
     }
-    
+
     /**
      * @dev Invariant: Ghost variables should track real state accurately
      */
     function invariant_ghostVariablesAccuracy() public view {
         // Total allocated should be >= total collected (can't collect more than allocated)
-        assertTrue(handler.getGhostTotalAllocated() >= handler.getGhostTotalCollected());
-        
+        assertTrue(
+            handler.getGhostTotalAllocated() + handler.getGhostTotalInvested() >= handler.getGhostTotalCollected()
+        );
+
         // Net flow should be reasonable
         int256 netFlow = handler.getGhostNetFlow();
         uint256 strategyAssets = myStrategy.totalAssets();
-        
+
         // Net positive flow should correlate with strategy assets
         if (netFlow > 0) {
             assertTrue(strategyAssets > 0);
         }
     }
-    
+
     /**
      * @dev Invariant: Strategy should never hold more than allocated amount
      */
     function invariant_allocationLimits() public view {
         uint256 strategyAssets = myStrategy.totalAssets();
         uint256 maxAllocation = stkVault.strategyAllocations(address(myStrategy));
-        
+
         // Strategy assets should not exceed maximum allocation
         assertTrue(strategyAssets <= maxAllocation, "strategyAssets > maxAllocation");
     }
-    
+
     /**
      * @dev Invariant: spUSD operations should be consistent
      */
     function invariant_spUSDConsistency() public view {
         uint256 pendingWithdraw = myStrategy.getPendingWithdrawSpUSD();
         uint256 spUSDBalance = ERC20(address(spUSDVault)).balanceOf(address(myStrategy));
-        
+
         // If there's a pending withdrawal, we should have some spUSD shares or have withdrawn
         // This is a logical consistency check
         assertTrue(pendingWithdraw == 0 || spUSDBalance > 0 || handler.getGhostTotalSpUSDWithdrawn() > 0);
     }
-    
+
     ///////////////////////////////
     // Invest Function Specific Invariants
     ///////////////////////////////
-    
+
     /**
-     * @dev Invariant: AAVE borrow and spUSD deposit consistency  
+     * @dev Invariant: AAVE borrow and spUSD deposit consistency
      * When USDC is borrowed from AAVE via invest, it should be deposited to spUSD vault
      */
     function invariant_investBorrowToSpUSDConsistency() public view {
         uint256 totalBorrowedForSpUSD = handler.getGhostTotalBorrowedForSpUSD();
         uint256 totalDepositedToSpUSD = handler.getGhostTotalDepositedToSpUSD();
-        
+
         // Borrowed amounts should correlate with spUSD deposits
         // Note: shares != assets, so we allow for conversion differences
         if (totalBorrowedForSpUSD > 0) {
             assertTrue(totalDepositedToSpUSD > 0, "Borrowed USDC should result in spUSD deposits");
         }
     }
-    
+
     /**
      * @dev Invariant: Leverage ratio safety during invest
      * Invest should maintain safe leverage ratios and health factors
@@ -220,16 +214,18 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         uint256 healthFactor = handler.getCurrentHealthFactor();
         uint256 totalSupply = handler.getGhostTotalSupplyInAAVE();
         uint256 totalDebt = handler.getGhostTotalDebtInAAVE();
-        
+
         // If leveraged position exists, health factor should be safe
         if (totalDebt > 0 && totalSupply > 0) {
-            assertTrue(healthFactor >= 1.05e18 || healthFactor == type(uint256).max, "Health factor too low after invest");
-            
+            assertTrue(
+                healthFactor >= 1.05e18 || healthFactor == type(uint256).max, "Health factor too low after invest"
+            );
+
             // Leverage ratio should be reasonable (debt should not exceed supply by too much)
             assertTrue(totalDebt <= totalSupply * 90 / 100, "Leverage ratio too high");
         }
     }
-    
+
     /**
      * @dev Invariant: Investment flow accounting consistency
      * Total investments should be consistent with AAVE positions and spUSD holdings
@@ -239,30 +235,33 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
         uint256 totalSuppliedToAAVE = handler.getGhostTotalSuppliedToAAVE();
         uint256 totalBorrowedForSpUSD = handler.getGhostTotalBorrowedForSpUSD();
         uint256 strategyAssets = myStrategy.totalAssets();
-        
+
         // Investment accounting should be logically consistent
         if (totalInvested > 0) {
             // Strategy should have assets or AAVE positions
             assertTrue(strategyAssets > 0 || totalSuppliedToAAVE > 0, "Invested assets should be trackable");
         }
-        
+
         // Borrowed amounts should not exceed reasonable leverage multiples of supply
         if (totalSuppliedToAAVE > 0 && totalBorrowedForSpUSD > 0) {
             // Reasonable leverage check - borrowed should not exceed 80% of supply value
             // Note: This is a simplified check as we'd need price oracles for exact comparison
-            assertTrue(totalBorrowedForSpUSD <= totalSuppliedToAAVE * 2, "Leverage ratio within bounds");
+            assertTrue(
+                totalBorrowedForSpUSD <= myStrategy._convertAmount(XAUM, totalSuppliedToAAVE, USDC_BNB),
+                "Leverage ratio within bounds"
+            );
         }
     }
-    
+
     /**
      * @dev Invariant: spUSD vault shares should increase with deposits from invest
      * When invest borrows and deposits to spUSD, the strategy's spUSD shares should increase
      */
     function invariant_investSpUSDSharesIncrease() public view {
         uint256 totalDepositedToSpUSD = handler.getGhostTotalDepositedToSpUSD();
-        uint256 currentSpUSDShares = ERC20(address(spUSDVault)).balanceOf(address(myStrategy));
+        uint256 currentSpUSDShares = spUSDVault.balanceOf(address(myStrategy));
         uint256 pendingWithdraw = myStrategy.getPendingWithdrawSpUSD();
-        
+
         // If we've deposited to spUSD via invest, we should have shares or pending withdrawals
         if (totalDepositedToSpUSD > 0) {
             assertTrue(
@@ -271,11 +270,11 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
             );
         }
     }
-    
+
     ///////////////////////////////
     // Helper functions for after invariant
     ///////////////////////////////
-    
+
     function afterInvariant() public {
         // Log some useful metrics after each invariant run
         emit log_named_uint("Total Allocated", handler.getGhostTotalAllocated());

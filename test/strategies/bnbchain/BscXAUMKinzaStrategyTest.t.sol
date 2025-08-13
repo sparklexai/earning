@@ -241,6 +241,11 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         _dummyStrategy.collectAll(EMPTY_CALLDATA);
         vm.stopPrank();
 
+        vm.expectRevert(Constants.SPUSD_WITHDRAW_EXISTS.selector);
+        vm.startPrank(strategist);
+        myStrategy.requestWithdrawalFromSpUSD(1);
+        vm.stopPrank();
+
         uint256 _worthDebtVal = spUSDVault.convertToAssets(_spUSDVal);
         console.log("_spUSDVal:%d,_worthDebtVal:%d", _spUSDVal, _worthDebtVal);
         (, uint256 _debtInAsset,) = myStrategy.getNetSupplyAndDebt(false);
@@ -292,6 +297,11 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         vm.stopPrank();
         (, uint256 _healthFactor) = _printAAVEPosition();
         assertEq(_healthFactor, type(uint256).max);
+
+        vm.startPrank(strategist);
+        myStrategy.setBorrowToSPUSDPool(Constants.ZRO_ADDR, Constants.ZRO_ADDR);
+        vm.stopPrank();
+        assertFalse(myStrategy._borrowSwapPools(USDT_USDC_POOL));
     }
 
     function test_XAUM_Compound(uint256 _testVal) public {
@@ -336,7 +346,10 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         assertTrue(_assetBal > 0);
     }
 
-    function test_XAUM_Edge_Cases(uint256 _testVal) public {}
+    function test_XAUM_Edge_Cases(uint256 _testVal) public {
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        new CollYieldAAVEStrategy(address(stkVault), XAU_USD_Feed_BNB, Constants.ZRO_ADDR, 601);
+    }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
         (uint256 _cBase, uint256 _dBase, uint256 _leftBase, uint256 _liqThresh, uint256 _ltv, uint256 _healthFactor) =
