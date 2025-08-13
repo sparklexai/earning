@@ -161,7 +161,7 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         vm.stopPrank();
         (, uint256 _healthFactor) = _printAAVEPosition();
         assertEq(_healthFactor, type(uint256).max);
-        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
+        uint256 _netSupply = kXAUM.balanceOf(address(myStrategy));
         assertEq(_netSupply, myStrategy.totalAssets());
     }
 
@@ -201,7 +201,7 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
                 break;
             }
         }
-        (uint256 _netSupply,,) = myStrategy.getNetSupplyAndDebt(true);
+        uint256 _netSupply = kXAUM.balanceOf(address(myStrategy));
         assertEq(_netSupply, myStrategy.totalAssets());
     }
 

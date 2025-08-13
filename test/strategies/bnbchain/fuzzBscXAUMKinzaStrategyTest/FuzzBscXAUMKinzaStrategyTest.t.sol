@@ -84,6 +84,7 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
 
         // Set up target contract for invariant testing
         targetContract(address(handler));
+        //_reRunFailedSequence();
         // StdInvariant.FuzzSelector memory selector = StdInvariant.FuzzSelector({
         //     addr: address(handler),
         //     selectors: new bytes4[](1)
@@ -160,7 +161,13 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
 
         // Net positive flow should correlate with strategy assets
         if (netFlow > 0) {
-            assertTrue(strategyAssets > 0);
+            assertTrue(
+                _assertApproximateEq(
+                    uint256(netFlow),
+                    strategyAssets,
+                    (uint256(netFlow) > BIGGER_TOLERANCE ? BIGGER_TOLERANCE : uint256(netFlow))
+                )
+            );
         }
     }
 
@@ -269,6 +276,13 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
                 "spUSD deposits should result in shares or withdrawals"
             );
         }
+    }
+
+    function _reRunFailedSequence() internal {
+        handler.allocate(39448992824534787839730345);
+        handler.collect(4048462900802861448370743193033112320022938241057799102198201290782181647426);
+        handler.redeem(3036429171135222074449523);
+        invariant_ghostVariablesAccuracy();
     }
 
     ///////////////////////////////

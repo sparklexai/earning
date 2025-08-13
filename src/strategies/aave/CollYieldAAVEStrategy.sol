@@ -256,7 +256,8 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     function totalAssets() public view override returns (uint256) {
         // Check supply in AAVE if any
         (uint256 _netSupply,,) = getNetSupplyAndDebt(true);
-        return _asset.balanceOf(address(this)) + _netSupply;
+        uint256 _aTokenBalance = AAVEHelper(_aaveHelper)._supplyAToken().balanceOf(address(this));
+        return _asset.balanceOf(address(this)) + (_netSupply > 0 ? _aTokenBalance : _netSupply);
     }
 
     function assetsInCollection() public view override returns (uint256) {

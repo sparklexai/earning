@@ -24,6 +24,7 @@ contract StrategistHandler is Test {
     ERC20 public borrowToken;
     IPool public aavePool = IPool(0xcB0620b181140e57D1C0D8b724cde623cA963c8C);
     uint256 public MIN_ASSET_TO_INVEST = 1e15;
+    ERC20 kXAUM = ERC20(0xC390614e71512B2Aa9D91AfA7E183cb00EB92518);
 
     ///////////////////////////////
     // Ghost variables for invariants
@@ -128,14 +129,31 @@ contract StrategistHandler is Test {
         }
 
         uint256 spUSDSharesBefore = spUSDVault.balanceOf(address(strategy));
+        uint256 supplyBefore = kXAUM.balanceOf(address(strategy));
+        (, uint256 debtBefore,) = strategy.getNetSupplyAndDebt(false);
 
         // Call allocate as strategist
         vm.startPrank(strategy.strategist());
         strategy.allocate(amount, "");
-        ghost_totalAllocated += amount;
-        console.log("allocate", amount);
+        (, uint256 debtAfter,) = strategy.getNetSupplyAndDebt(false);
+        uint256 supplyAfter = kXAUM.balanceOf(address(strategy));
 
         uint256 spUSDSharesAfter = spUSDVault.balanceOf(address(strategy));
+
+        // Track AAVE supply increase
+        if (supplyAfter > supplyBefore) {
+            uint256 actualSupplied = supplyAfter - supplyBefore;
+            ghost_totalSuppliedToAAVE += actualSupplied;
+            ghost_totalAllocated += actualSupplied;
+            console.log("allocate", actualSupplied);
+        }
+
+        // Track AAVE borrowing
+        if (debtAfter > debtBefore) {
+            uint256 actualBorrowed = debtAfter - debtBefore;
+            ghost_totalBorrowedFromAAVE += actualBorrowed;
+            ghost_totalBorrowedForSpUSD += actualBorrowed;
+        }
 
         // Track spUSD deposits
         if (spUSDSharesAfter > spUSDSharesBefore) {
@@ -253,27 +271,30 @@ contract StrategistHandler is Test {
         // Track before state for invariant checking
         // uint256 strategyAssetsBefore = asset.balanceOf(address(strategy));
         uint256 spUSDSharesBefore = ERC20(address(spUSDVault)).balanceOf(address(strategy));
-        (uint256 supplyBefore, uint256 debtBefore,) = strategy.getNetSupplyAndDebt(false);
+        uint256 supplyBefore = kXAUM.balanceOf(address(strategy));
+        (, uint256 debtBefore,) = strategy.getNetSupplyAndDebt(false);
 
         // Call invest as strategist
         vm.startPrank(strategy.strategist());
         strategy.invest(assetAmount, borrowAmount, "");
-        console.log("invest", assetAmount);
 
         // Track after state and update ghost variables
         // uint256 strategyAssetsAfter = asset.balanceOf(address(strategy));
         uint256 spUSDSharesAfter = ERC20(address(spUSDVault)).balanceOf(address(strategy));
-        (uint256 supplyAfter, uint256 debtAfter,) = strategy.getNetSupplyAndDebt(false);
+        (, uint256 debtAfter,) = strategy.getNetSupplyAndDebt(false);
+        uint256 supplyAfter = kXAUM.balanceOf(address(strategy));
 
         // Update ghost variables based on actual changes
         if (assetAmount > 0) {
-            ghost_totalInvested += assetAmount;
             ghost_totalAssetsTransferredToStrategy += assetAmount;
         }
 
         // Track AAVE supply increase
         if (supplyAfter > supplyBefore) {
-            ghost_totalSuppliedToAAVE += (supplyAfter - supplyBefore);
+            uint256 actualInvested = supplyAfter - supplyBefore;
+            ghost_totalSuppliedToAAVE += actualInvested;
+            ghost_totalInvested += actualInvested;
+            console.log("invest", actualInvested);
         }
 
         // Track AAVE borrowing
