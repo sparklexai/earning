@@ -347,8 +347,67 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
     }
 
     function test_XAUM_Edge_Cases(uint256 _testVal) public {
+        bytes memory EMPTY_CALLDATA;
+        vm.startPrank(strategist);
+        uint256 _zeroRedeemed = myStrategy.redeem(1, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(_zeroRedeemed, 0);
+
         vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
         new CollYieldAAVEStrategy(address(stkVault), XAU_USD_Feed_BNB, Constants.ZRO_ADDR, 601);
+
+        vm.startPrank(strategist);
+        myStrategy.setBorrowToSPUSDPool(USDT_USDC_POOL, XAUM_USDT_POOL);
+        vm.stopPrank();
+        assertTrue(myStrategy._borrowSwapPools(USDT_USDC_POOL) && myStrategy._borrowSwapPools(XAUM_USDT_POOL));
+        vm.startPrank(strategist);
+        myStrategy.setBorrowToSPUSDPool(Constants.ZRO_ADDR, Constants.ZRO_ADDR);
+        vm.stopPrank();
+        assertFalse(myStrategy._borrowSwapPools(USDT_USDC_POOL) || myStrategy._borrowSwapPools(XAUM_USDT_POOL));
+
+        AAVEHelper newAaveHelper = new AAVEHelper(address(myStrategy), ERC20(XAUM), ERC20(USDT_BNB), kXAUM, 0);
+        vm.startPrank(strategyOwner);
+        myStrategy.setBorrowToSPUSDPool(USDT_USDC_POOL, Constants.ZRO_ADDR);
+        myStrategy.setAAVEHelper(address(newAaveHelper));
+        vm.stopPrank();
+        _prepareSwapForMockRouter(mockRouter, wETH, XAUM, XAUM_Whale, xaumPerBNB);
+        _fundFirstDepositGenerouslyWithERC20(mockRouter, address(stkVault), xaumPerBNB);
+        address _user = TestUtils._getSugarUser();
+        (uint256 _deposited, uint256 _share) = TestUtils._makeVaultDepositWithMockRouter(
+            mockRouter, address(stkVault), _user, xaumPerBNB, _testVal, 4 ether, 20 ether
+        );
+        uint256 _totalAsset = stkVault.totalAssets();
+        vm.startPrank(strategist);
+        myStrategy.invest(_totalAsset, 1, EMPTY_CALLDATA);
+        vm.stopPrank();
+        (, uint256 _debt,) = myStrategy.getNetSupplyAndDebt(true);
+        assertEq(_debt, 0);
+        assertEq(spUSDVault.balanceOf(address(myStrategy)), 0);
+
+        uint256 _xaumFree = ERC20(XAUM).balanceOf(XAUM_Whale) / 2;
+        vm.startPrank(XAUM_Whale);
+        ERC20(XAUM).transfer(address(myStrategy), _xaumFree);
+        vm.stopPrank();
+        uint256 _xaumStrategyBal = ERC20(XAUM).balanceOf(address(myStrategy));
+        uint256[] memory _previewCollect = aaveHelper.previewCollect(_xaumFree);
+        assertEq(_previewCollect[0], 0);
+        vm.startPrank(strategist);
+        myStrategy.collect(_xaumFree, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(_xaumStrategyBal - ERC20(XAUM).balanceOf(address(myStrategy)), _xaumFree);
+
+        vm.startPrank(strategist);
+        assertEq(myStrategy.swapViaUniswap(USDC_BNB, 0, USDT_USDC_POOL, Constants.ZRO_ADDR), 0);
+        vm.stopPrank();
+
+        vm.startPrank(XAUM_Whale);
+        ERC20(XAUM).transfer(address(myStrategy), _xaumFree);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.BORROW_SWAP_POOL_INVALID.selector);
+        vm.startPrank(strategist);
+        myStrategy.swapViaUniswap(XAUM, _xaumFree, XAUM_USDT_POOL, USDT_USDC_POOL);
+        vm.stopPrank();
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {

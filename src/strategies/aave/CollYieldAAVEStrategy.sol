@@ -160,7 +160,9 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         _prepareSupplyFromAsset(_assetAmount, _extraAction);
         uint256 _safeToBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(0, _borrowAmount);
         _supplyToAAVE(AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)));
-        _borrowFromAAVE(_safeToBorrow);
+        if (_safeToBorrow > 0) {
+            _borrowFromAAVE(_safeToBorrow);
+        }
         _depositToSpUSD(AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this)));
     }
 
@@ -200,10 +202,6 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         }
         _supplyAmount = _supplyAmount > _margin ? _margin : _supplyAmount;
         uint256 _redeemed = _withdrawCollateralFromAAVE(_supplyAmount);
-
-        if (_redeemed == 0) {
-            return _redeemed;
-        }
         return _returnAssetToVault(_redeemed);
     }
 
