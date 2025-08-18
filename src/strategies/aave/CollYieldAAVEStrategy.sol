@@ -26,7 +26,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
-    uint32 public constant FEED_HEARTBEAT = 899;
+    uint32 public constant FEED_HEARTBEAT = 901;
     SparkleXVault public spUSDVault;
     address public _assetFeed;
     mapping(address => uint32) public _feedHeartbeats;
@@ -58,13 +58,40 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             revert Constants.INVALID_ADDRESS_TO_SET();
         }
         spUSDVault = SparkleXVault(_spUSD);
+        _approveToken(_spUSD, _spUSD);
+        _approveToken(SparkleXVault(_spUSD).asset(), _spUSD);
         _assetFeed = assetFeed;
         setFeedHeartBeat(SparkleXVault(vault).asset(), _assetFeedHeartbeat);
+        _loopingBorrow = false;
+    }
+
+    function approveAllowanceForHelper() external onlyOwner {
+        if (
+            _aaveHelper != Constants.ZRO_ADDR
+                && AAVEHelper(_aaveHelper)._borrowToken().allowance(address(this), _aaveHelper) == 0
+        ) {
+            _prepareAllowanceForHelper();
+        }
     }
 
     function setBorrowToSPUSDPool(address _newPool, address _newIntermediatePool) public onlyOwner {
+        if (_borrowedToSPUSDPool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDPool, false);
+        }
+        if (_borrowedToSPUSDIntermediatePool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDIntermediatePool, false);
+        }
+
         _borrowedToSPUSDPool = _newPool;
+        if (_newPool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDPool, true);
+        }
+
         _borrowedToSPUSDIntermediatePool = _newIntermediatePool;
+        if (_newIntermediatePool != Constants.ZRO_ADDR) {
+            setBorrowSwapPoolApproval(_borrowedToSPUSDIntermediatePool, true);
+        }
+
         emit BorrowedToSPUSDPoolChanged(_newPool, _newIntermediatePool);
     }
 
@@ -84,14 +111,16 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
 
     function _depositToSpUSD(uint256 _toDeposit) internal returns (uint256) {
         ERC20 _borrowToken = AAVEHelper(_aaveHelper)._borrowToken();
+        address _spUSDAssetToken = spUSDVault.asset();
         _toDeposit = _capAmountByBalance(_borrowToken, _toDeposit, false);
-        if (address(_borrowToken) != spUSDVault.asset()) {
+        if (address(_borrowToken) != _spUSDAssetToken) {
+            uint256 _assetBefore = ERC20(_spUSDAssetToken).balanceOf(address(this));
             if (_toDeposit > 0) {
                 _toDeposit = swapViaUniswap(
                     address(_borrowToken), _toDeposit, _borrowedToSPUSDIntermediatePool, _borrowedToSPUSDPool
                 );
             }
-            _toDeposit += ERC20(spUSDVault.asset()).balanceOf(address(this));
+            _toDeposit += _assetBefore;
         }
         if (_toDeposit == 0) {
             return _toDeposit;
@@ -99,7 +128,10 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         return spUSDVault.deposit(_toDeposit, address(this));
     }
 
-    function _requestWithdrawalFromSpUSD(uint256 _toWithdrawSpUSD) internal returns (uint256) {
+    /*
+     * @dev withdraw investment from spUSD
+     */
+    function requestWithdrawalFromSpUSD(uint256 _toWithdrawSpUSD) public onlyStrategistOrOwner returns (uint256) {
         if (getPendingWithdrawSpUSD() > 0) {
             revert Constants.SPUSD_WITHDRAW_EXISTS();
         }
@@ -127,7 +159,10 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     {
         _prepareSupplyFromAsset(_assetAmount, _extraAction);
         uint256 _safeToBorrow = AAVEHelper(_aaveHelper).previewLeverageForInvest(0, _borrowAmount);
-        _borrowFromAAVE(_safeToBorrow);
+        _supplyToAAVE(AAVEHelper(_aaveHelper)._supplyToken().balanceOf(address(this)));
+        if (_safeToBorrow > 0) {
+            _borrowFromAAVE(_safeToBorrow);
+        }
         _depositToSpUSD(AAVEHelper(_aaveHelper)._borrowToken().balanceOf(address(this)));
     }
 
@@ -167,10 +202,6 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         }
         _supplyAmount = _supplyAmount > _margin ? _margin : _supplyAmount;
         uint256 _redeemed = _withdrawCollateralFromAAVE(_supplyAmount);
-
-        if (_redeemed == 0) {
-            return _redeemed;
-        }
         return _returnAssetToVault(_redeemed);
     }
 
@@ -214,7 +245,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             _toClaimFromSpUSD =
                 _capAmountByBalance(ERC20(address(spUSDVault)), spUSDVault.convertToShares(_spUSDAsset), true);
         }
-        _requestWithdrawalFromSpUSD(_toClaimFromSpUSD);
+        requestWithdrawalFromSpUSD(_toClaimFromSpUSD);
     }
 
     ///////////////////////////////
@@ -223,7 +254,8 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     function totalAssets() public view override returns (uint256) {
         // Check supply in AAVE if any
         (uint256 _netSupply,,) = getNetSupplyAndDebt(true);
-        return _asset.balanceOf(address(this)) + _netSupply;
+        uint256 _aTokenBalance = AAVEHelper(_aaveHelper)._supplyAToken().balanceOf(address(this));
+        return _asset.balanceOf(address(this)) + (_netSupply > 0 ? _aTokenBalance : _netSupply);
     }
 
     function assetsInCollection() public view override returns (uint256) {
@@ -244,7 +276,11 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
     }
 
     function _convertSupplyToBorrow(uint256 _supplyAmount) public view override returns (uint256) {
-        return _convertAmount(address(_asset), _supplyAmount, address(AAVEHelper(_aaveHelper)._borrowToken()));
+        return _convertAmount(
+            address(AAVEHelper(_aaveHelper)._supplyToken()),
+            _supplyAmount,
+            address(AAVEHelper(_aaveHelper)._borrowToken())
+        );
     }
 
     function _convertBorrowToAsset(uint256 _borrowAmount) public view override returns (uint256) {
@@ -257,7 +293,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
         return TokenSwapper(_swapper).convertAmountWithFeeds(
             ERC20(_fromToken),
             _fromAmount,
-            TokenSwapper(_swapper).getAssetOracle(_fromToken),
+            _fromToken == address(_asset) ? _assetFeed : TokenSwapper(_swapper).getAssetOracle(_fromToken),
             ERC20(_toToken),
             _toToken == address(_asset) ? _assetFeed : TokenSwapper(_swapper).getAssetOracle(_toToken),
             _fromHeartbeat,
@@ -291,6 +327,8 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             revert Constants.BORROW_SWAP_POOL_INVALID();
         }
 
+        _approveToken(_fromToken, address(_swapper));
+
         if (_intermediatePool == Constants.ZRO_ADDR) {
             address _outToken = TokenSwapper(_swapper).getOutTokenForUniPool(_fromToken, _assetPool);
             uint256 _outExpected =
@@ -302,7 +340,7 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
             if (!_borrowSwapPools[_intermediatePool]) {
                 revert Constants.BORROW_SWAP_POOL_INVALID();
             }
-            // swap from borrow token -> intermediate token
+            // from token -> intermediate token
             address _intermediateToken = TokenSwapper(_swapper).getOutTokenForUniPool(_fromToken, _intermediatePool);
             uint256 _expectedIntermediateAmount = TokenSwapper(_swapper).applySlippageRelax(
                 _convertAmount(_fromToken, _fromTokenAmount, _intermediateToken)
@@ -311,7 +349,8 @@ contract CollYieldAAVEStrategy is BaseAAVEStrategy {
                 _fromToken, _intermediateToken, _intermediatePool, _fromTokenAmount, _expectedIntermediateAmount
             );
 
-            // swap from intermediate token -> asset token
+            // intermediate token -> asset token
+            _approveToken(_intermediateToken, address(_swapper));
             address _outToken = TokenSwapper(_swapper).getOutTokenForUniPool(_intermediateToken, _assetPool);
             uint256 _outExpected = TokenSwapper(_swapper).applySlippageRelax(
                 _convertAmount(_intermediateToken, _intermediateAmount, _outToken)
