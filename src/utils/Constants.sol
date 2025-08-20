@@ -109,4 +109,15 @@ library Constants {
     // errors in CollYieldAAVEStrategy
     error SPUSD_WITHDRAW_EXISTS();
     error BORROW_SWAP_POOL_INVALID();
+
+    // errors in UniV3FarmingStrategy
+    error FAILED_TO_CREATE_USER_VAULT();
+    error LP_POSITION_ZERO_LIQUIDITY();
+    error WRONG_LP_POSITION_INDEX();
+    error WRONG_LP_POSITION_COUNT();
+    error WRONG_TWAP_OBSERVE_INTERVAL();
+    error LP_FARMING_STILL_IN_USE();
+    error WRONG_LP_REMOVAL_RATIO();
+    error LP_POSITION_EXIST();
+    error SINGLE_TOKEN_ZAPIN_ONLY();
 }
