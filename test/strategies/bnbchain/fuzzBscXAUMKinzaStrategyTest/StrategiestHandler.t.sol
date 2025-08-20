@@ -185,7 +185,12 @@ contract StrategistHandler is Test {
         vm.startPrank(strategy.strategist());
         uint256 _assetBefore = asset.balanceOf(address(vault));
         strategy.collect(amount, "");
-        strategy.claimAndRepay(type(uint256).max);
+        (, uint256 _debt0,) = strategy.getNetSupplyAndDebt(true);
+        if (_debt0 > 0) {
+            strategy.claimAndRepay(type(uint256).max);
+        } else {
+            strategy.claimWithdrawFromSpUSD();
+        }
         strategy.redeem(amount, "");
         uint256 _assetAfter = asset.balanceOf(address(vault));
         ghost_totalCollected += (_assetAfter - _assetBefore);
@@ -223,7 +228,12 @@ contract StrategistHandler is Test {
         vm.startPrank(strategy.strategist());
         uint256 _assetBefore = asset.balanceOf(address(vault));
         strategy.collectAll("");
-        strategy.claimAndRepay(type(uint256).max);
+        (, _debt0,) = strategy.getNetSupplyAndDebt(true);
+        if (_debt0 > 0) {
+            strategy.claimAndRepay(type(uint256).max);
+        } else {
+            strategy.claimWithdrawFromSpUSD();
+        }
         strategy.collectAll("");
         uint256 _assetAfter = asset.balanceOf(address(vault));
         ghost_totalCollected += (_assetAfter - _assetBefore);
