@@ -53,7 +53,7 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
      */
     mapping(address => LPPositionInfo) public _positionInfos;
     SparkleXFarmingSetting public _sparkleXFarmingSetting;
-    EnumerableSet.AddressSet private activePositions;
+    EnumerableSet.AddressSet private allPositions;
 
     ///////////////////////////////
     // integrations - Ethereum mainnet
@@ -240,6 +240,7 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         uint256 _positionIdx = IUserVault(_farmingSetting.farmingUserVault).nextPositionId() - 1;
         _positionInfos[_targetPool].userVaultIdx = _positionIdx;
         _positionInfos[_targetPool].active = true;
+        allPositions.add(_targetPool);
         emit LPPositionCreated(_targetPool, _lowerT, _upperT, _assetAmount, _positionId, _positionIdx);
         return _positionId;
     }
@@ -254,18 +255,7 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         (address _pairedToken,) = getPairedTokenAddress(_targetPool);
 
         // collect all fees before close position
-        LPFarmingHelper.ZapInPositionParams memory _params = LPFarmingHelper.ZapInPositionParams({
-            _pool: _targetPool,
-            _userVault: _farmingSetting.farmingUserVault,
-            _farmingMgr: _farmingSetting.farmingMgr,
-            _farmingStrategy: _farmingSetting.farmingStrategyCollectFee,
-            _amount0: 0,
-            _amount1: 0,
-            _tickLower: 0,
-            _tickUpper: 0,
-            _currentSqrtPX96: 0
-        });
-        LPFarmingHelper(_farmingHelper).collectFeeV3(_params, _positionInfo.userVaultIdx);
+        (,, LPFarmingHelper.ZapInPositionParams memory _params) = _collectPositionFees(_farmingSetting, _positionInfo);
         (uint256 amount0Min, uint256 amount1Min) = this.getPositionAmount(_positionInfo);
 
         // close position completely
@@ -324,18 +314,7 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         (address _pairedToken, bool _assetIsToken0) = getPairedTokenAddress(_targetPool);
 
         // collect all fees before remove liquidity position
-        LPFarmingHelper.ZapInPositionParams memory _params = LPFarmingHelper.ZapInPositionParams({
-            _pool: _targetPool,
-            _userVault: _farmingSetting.farmingUserVault,
-            _farmingMgr: _farmingSetting.farmingMgr,
-            _farmingStrategy: _farmingSetting.farmingStrategyCollectFee,
-            _amount0: 0,
-            _amount1: 0,
-            _tickLower: 0,
-            _tickUpper: 0,
-            _currentSqrtPX96: 0
-        });
-        LPFarmingHelper(_farmingHelper).collectFeeV3(_params, _positionInfo.userVaultIdx);
+        (,, LPFarmingHelper.ZapInPositionParams memory _params) = _collectPositionFees(_farmingSetting, _positionInfo);
 
         // remove specified liquidity from position
         (uint256 amount0Min, uint256 amount1Min) = this.getPositionAmount(_positionInfo);
@@ -353,14 +332,18 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
 
     /*
      * @dev off-chain query could use callStatic method to get up-to-date fee in the position
-     * @dev strategist script should use this method to keep position fees updated periodically
+     * @dev strategist script should use this method to collect position fees periodically
      */
-    function updatePositionFee(address _pool) public onlyStrategistOrOwner returns (uint256, uint256) {
+    function collectPositionFee(address _pool) public onlyStrategistOrOwner returns (uint256, uint256) {
         LPPositionInfo memory _positionInfo = _positionInfos[_pool];
         if (!_positionInfo.active) {
             return (0, 0);
         } else {
-            return UniV3PositionMath.triggerFeeUpdate(getDexPositionManager(), _positionInfo.tokenId, _pool);
+            SparkleXFarmingSetting memory _farmingSetting = _sparkleXFarmingSetting;
+            (uint256 _feeToken0, uint256 _feeToken1,) = _collectPositionFees(_farmingSetting, _positionInfo);
+            (address _pairedToken,) = getPairedTokenAddress(_pool);
+            _swapPairedTokenToAsset(_pool, _pairedToken, _positionInfo);
+            return (_feeToken0, _feeToken1);
         }
     }
 
@@ -373,10 +356,16 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
     }
 
     /**
-     * @return active position managed by this strategy's SparkleX farming UserVault
+     * @return positions managed by this strategy's SparkleX farming UserVault
      */
-    function getActivePositions() external view returns (address[] memory) {
-        return activePositions.values();
+    function getAllPositions() external view returns (address[] memory, bool[] memory) {
+        address[] memory _allPositions = allPositions.values();
+        uint256 length = allPositions.length();
+        bool[] memory _positionsActive = new bool[](length);
+        for (uint256 i = 0; i < length; i++) {
+            _positionsActive[i] = _positionInfos[_allPositions[i]].active;
+        }
+        return (_allPositions, _positionsActive);
     }
 
     /* 
@@ -423,9 +412,9 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
      */
     function getAllPositionValuesInAsset() public view returns (uint256) {
         uint256 totalPositionValueInAsset;
-        uint256 length = activePositions.length();
+        uint256 length = allPositions.length();
         for (uint256 i = 0; i < length; i++) {
-            totalPositionValueInAsset += getPositionValueInAsset(activePositions.at(i));
+            totalPositionValueInAsset += getPositionValueInAsset(allPositions.at(i));
         }
         return totalPositionValueInAsset;
     }
@@ -493,7 +482,9 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         internal
     {
         uint256 _pairedTokenBal = ERC20(_pairedToken).balanceOf(address(this));
-
+        if (_pairedTokenBal == 0) {
+            return;
+        }
         _approveToken(_pairedToken, _swapper);
         TokenSwapper(_swapper).swapExactInWithUniswap(
             _pairedToken,
@@ -502,5 +493,25 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
             _pairedTokenBal,
             TokenSwapper(_swapper).applySlippageRelax(this.getPairedTokenValueInAsset(_positionInfo, _pairedTokenBal))
         );
+    }
+
+    function _collectPositionFees(SparkleXFarmingSetting memory _farmingSetting, LPPositionInfo memory _positionInfo)
+        internal
+        returns (uint256, uint256, LPFarmingHelper.ZapInPositionParams memory)
+    {
+        LPFarmingHelper.ZapInPositionParams memory _params = LPFarmingHelper.ZapInPositionParams({
+            _pool: _positionInfo.pool,
+            _userVault: _farmingSetting.farmingUserVault,
+            _farmingMgr: _farmingSetting.farmingMgr,
+            _farmingStrategy: _farmingSetting.farmingStrategyCollectFee,
+            _amount0: 0,
+            _amount1: 0,
+            _tickLower: 0,
+            _tickUpper: 0,
+            _currentSqrtPX96: 0
+        });
+        (uint256 _feeToken0, uint256 _feeToken1) =
+            LPFarmingHelper(_farmingHelper).collectFeeV3(_params, _positionInfo.userVaultIdx);
+        return (_feeToken0, _feeToken1, _params);
     }
 }

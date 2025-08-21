@@ -206,10 +206,24 @@ contract LPFarmingHelper is Ownable {
     /*
      * @dev collect accumulated fee from LP position using SparkleX farming UserVault
      */
-    function collectFeeV3(ZapInPositionParams calldata _zapInParams, uint256 _positionIdx) external {
+    function collectFeeV3(ZapInPositionParams calldata _zapInParams, uint256 _positionIdx)
+        external
+        returns (uint256, uint256)
+    {
+        if (_strategy != msg.sender) {
+            revert Constants.INVALID_HELPER_CALLER();
+        }
+        address _token0 = IUniswapV3PoolImmutables(_zapInParams._pool).token0();
+        address _token1 = IUniswapV3PoolImmutables(_zapInParams._pool).token1();
+        uint256 _token0BalBefore = ERC20(_token0).balanceOf(address(this));
+        uint256 _token1BalBefore = ERC20(_token1).balanceOf(address(this));
         IManager(_zapInParams._farmingMgr).work(
             _zapInParams._userVault, _positionIdx, _zapInParams._farmingStrategy, abi.encode(true)
         );
+        uint256 _token0BalAfter = ERC20(_token0).balanceOf(address(this));
+        uint256 _token1BalAfter = ERC20(_token1).balanceOf(address(this));
+        _returnResidueTokens(_token0, _token1);
+        return (_token0BalAfter - _token0BalBefore, _token1BalAfter - _token1BalBefore);
     }
 
     /*

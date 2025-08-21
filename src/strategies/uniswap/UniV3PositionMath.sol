@@ -12,38 +12,6 @@ library UniV3PositionMath {
     uint8 internal constant q96_RESOLUTION = 96;
 
     /*
-     * @dev same logic as https://github.com/Uniswap/v3-periphery/blob/main/contracts/NonfungiblePositionManager.sol/#L330
-     */
-    function triggerFeeUpdate(address _nftMgr, uint256 tokenId, address _pool) public returns (uint256, uint256) {
-        INonfungiblePositionManager.NFTPositionData memory _positionData =
-            INonfungiblePositionManager(_nftMgr).positions(tokenId);
-        uint128 tokensOwed0;
-        uint128 tokensOwed1;
-        if (_positionData.liquidity > 0) {
-            // trigger an update of the position fees owed and fee growth snapshots if position has any liquidity
-            IUniswapV3PoolImmutables(_pool).burn(_positionData.tickLower, _positionData.tickUpper, 0);
-            INonfungiblePositionManager.NFTPositionData memory _positionDataNew =
-                INonfungiblePositionManager(_nftMgr).positions(tokenId);
-
-            tokensOwed0 += uint128(
-                FullMath.mulDiv(
-                    _positionDataNew.feeGrowthInside0LastX128 - _positionData.feeGrowthInside0LastX128,
-                    _positionData.liquidity,
-                    Q128
-                )
-            );
-            tokensOwed1 += uint128(
-                FullMath.mulDiv(
-                    _positionDataNew.feeGrowthInside1LastX128 - _positionData.feeGrowthInside1LastX128,
-                    _positionData.liquidity,
-                    Q128
-                )
-            );
-        }
-        return (uint256(tokensOwed0), uint256(tokensOwed1));
-    }
-
-    /*
      * @dev this method returns uncollected fees owed to the position as of the last computation
      * @dev which might under-estimate the actual accumulated fees.
      * @dev for accurate fee number, use triggerFeeUpdate() instead
@@ -72,15 +40,15 @@ library UniV3PositionMath {
             uint256 amount0 =
                 FullMath.mulDiv(uint256(_positionData.liquidity) << q96_RESOLUTION, (_pB - _pA), _pB) / _pA;
             return (amount0, 0);
-        } else if (_currentSqrtPX96 >= _pB) {
-            uint256 amount1 = FullMath.mulDiv(_positionData.liquidity, (_pB - _pA), Q96);
-            return (0, amount1);
-        } else {
+        } else if (_currentSqrtPX96 < _pB) {
             uint256 amount0 = FullMath.mulDiv(
                 uint256(_positionData.liquidity) << q96_RESOLUTION, (_pB - _currentSqrtPX96), _pB
             ) / _currentSqrtPX96;
             uint256 amount1 = FullMath.mulDiv(_positionData.liquidity, (_currentSqrtPX96 - _pA), Q96);
             return (amount0, amount1);
+        } else {
+            uint256 amount1 = FullMath.mulDiv(_positionData.liquidity, (_pB - _pA), Q96);
+            return (0, amount1);
         }
     }
 }
