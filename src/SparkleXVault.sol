@@ -27,8 +27,8 @@ contract SparkleXVault is ERC4626, Ownable, Pausable {
     // member storage
     ///////////////////////////////
     uint256 public EARN_RATIO_BPS = 9900;
-    uint256 public WITHDRAW_FEE_BPS = 10;
-    uint256 public MANAGEMENT_FEE_BPS = 200;
+    uint256 public WITHDRAW_FEE_BPS = 1;
+    uint256 public MANAGEMENT_FEE_BPS = 50;
     ManagementFeeRecord public mgmtFee;
 
     struct ManagementFeeRecord {
