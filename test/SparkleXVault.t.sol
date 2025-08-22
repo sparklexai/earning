@@ -196,7 +196,7 @@ contract SparkleXVaultTest is TestUtils {
         (uint256 _feeAccumulated,) = stkVault.previewManagementFeeAccumulated(_totalAssets, _tsEmitted);
 
         vm.expectEmit();
-        emit ManagementFeeUpdated(_feeAccumulated, _totalAssets, _tsEmitted, 200);
+        emit ManagementFeeUpdated(_feeAccumulated, _totalAssets, _tsEmitted, 50);
 
         vm.startPrank(stkVOwner);
         stkVault.setManagementFeeRatio(_feeBps);
