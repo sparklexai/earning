@@ -12,6 +12,13 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {TickMath} from "./TickMath.sol";
 
+interface IUniswapV3PoolDerivedState {
+    function observe(uint32[] calldata secondsAgos)
+        external
+        view
+        returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s);
+}
+
 contract LPFarmingHelper is Ownable {
     struct ZapInPositionParams {
         address _pool;
@@ -23,6 +30,13 @@ contract LPFarmingHelper is Ownable {
         int24 _tickLower;
         int24 _tickUpper;
         uint256 _currentSqrtPX96;
+    }
+
+    struct ZapInPositionOutput {
+        uint256 posTokenId;
+        uint256 inAmount;
+        uint256 residue0;
+        uint256 residue1;
     }
 
     ///////////////////////////////
@@ -52,7 +66,7 @@ contract LPFarmingHelper is Ownable {
     }
 
     function setSlippage(uint256 _slippage) external onlyOwner {
-        if (_slippage == 0 || _slippage >= Constants.TOTAL_BPS) {
+        if (_slippage == 0 || _slippage >= FULL_SLIPPAGE) {
             revert Constants.INVALID_BPS_TO_SET();
         }
         SLIPPAGE_TOLERANCE = _slippage;
@@ -75,7 +89,7 @@ contract LPFarmingHelper is Ownable {
      */
     function openV3PositionWithAmounts(ZapInPositionParams calldata _zapInParams)
         external
-        returns (uint256 _positionId)
+        returns (ZapInPositionOutput memory)
     {
         if (_strategy != msg.sender) {
             revert Constants.INVALID_HELPER_CALLER();
@@ -104,7 +118,7 @@ contract LPFarmingHelper is Ownable {
         if (_positionCount != _positionCountBefore + 1) {
             revert Constants.WRONG_LP_POSITION_COUNT();
         }
-        _returnResidueTokens(_token0, _token1);
+        (uint256 _residue0, uint256 _residue1) = _returnResidueTokens(_token0, _token1);
 
         if (_zapInParams._amount0 > 0) {
             _revokeTokenApproval(_token0, _zapInParams._userVault);
@@ -115,7 +129,12 @@ contract LPFarmingHelper is Ownable {
         uint256 _nftTokenId = INonfungiblePositionManager(_nftPositionMgr).tokenOfOwnerByIndex(
             _zapInParams._userVault, _positionCount - 1
         );
-        return _nftTokenId;
+        return ZapInPositionOutput({
+            posTokenId: _nftTokenId,
+            inAmount: (_zapInParams._amount0 > 0 ? _zapInParams._amount0 : _zapInParams._amount1),
+            residue0: _residue0,
+            residue1: _residue1
+        });
     }
 
     /*
@@ -172,7 +191,10 @@ contract LPFarmingHelper is Ownable {
     /*
      * @dev remove liquidity from LP position using SparkleX farming UserVault
      */
-    function addLiquidityV3(ZapInPositionParams calldata _zapInParams, uint256 _positionIdx) external {
+    function addLiquidityV3(ZapInPositionParams calldata _zapInParams, uint256 _posTokenId, uint256 _positionIdx)
+        external
+        returns (ZapInPositionOutput memory)
+    {
         if (_strategy != msg.sender) {
             revert Constants.INVALID_HELPER_CALLER();
         }
@@ -193,7 +215,7 @@ contract LPFarmingHelper is Ownable {
 
         _addLiquidity(_zapInParams, _positionIdx, _token0, _token1);
 
-        _returnResidueTokens(_token0, _token1);
+        (uint256 _residue0, uint256 _residue1) = _returnResidueTokens(_token0, _token1);
 
         if (_zapInParams._amount0 > 0) {
             _revokeTokenApproval(_token0, _zapInParams._userVault);
@@ -201,6 +223,12 @@ contract LPFarmingHelper is Ownable {
         if (_zapInParams._amount1 > 0) {
             _revokeTokenApproval(_token1, _zapInParams._userVault);
         }
+        return ZapInPositionOutput({
+            posTokenId: _posTokenId,
+            inAmount: (_zapInParams._amount0 > 0 ? _zapInParams._amount0 : _zapInParams._amount1),
+            residue0: _residue0,
+            residue1: _residue1
+        });
     }
 
     /*
@@ -229,7 +257,7 @@ contract LPFarmingHelper is Ownable {
     /*
      * @dev transform price from pool TWAP oracle to SqrtX96-compatible number 
      */
-    function getTwapPriceInSqrtX96(address _pool, uint32 _twapInterval) public view returns (uint160) {
+    function getTwapPriceInSqrtX96(address _pool, uint32 _twapInterval) public view returns (uint160, int24) {
         if (_twapInterval == 0) {
             revert Constants.WRONG_TWAP_OBSERVE_INTERVAL();
         }
@@ -238,9 +266,11 @@ contract LPFarmingHelper is Ownable {
         secondsAgos[0] = _twapInterval; // from (before)
         secondsAgos[1] = 0; // to (now)
 
-        (int56[] memory tickCumulatives,) = IUniswapV3PoolImmutables(_pool).observe(secondsAgos);
-        return
-            TickMath.getSqrtRatioAtTick(int24((tickCumulatives[1] - tickCumulatives[0]) / int56(int32(_twapInterval))));
+        (int56[] memory tickCumulatives,) = IUniswapV3PoolDerivedState(_pool).observe(secondsAgos);
+        int56 _tickCumulativeDiff = tickCumulatives[1] - tickCumulatives[0];
+        int56 _timeDiff = int56(int32(_twapInterval));
+        int24 _tickTwap = int24(_tickCumulativeDiff / _timeDiff);
+        return (TickMath.getSqrtRatioAtTick(_tickTwap), _tickTwap);
     }
 
     function _zapInWithSingleToken(ZapInPositionParams calldata _zapInParams, address _token0, address _token1)
@@ -307,7 +337,7 @@ contract LPFarmingHelper is Ownable {
         _returnResidueTokens(IUniswapV3PoolImmutables(_pool).token0(), IUniswapV3PoolImmutables(_pool).token1());
     }
 
-    function _returnResidueTokens(address _token0, address _token1) internal {
+    function _returnResidueTokens(address _token0, address _token1) internal returns (uint256, uint256) {
         uint256 _residue0 = ERC20(_token0).balanceOf(address(this));
         uint256 _residue1 = ERC20(_token1).balanceOf(address(this));
         if (_residue0 > 0) {
@@ -316,6 +346,7 @@ contract LPFarmingHelper is Ownable {
         if (_residue1 > 0) {
             SafeERC20.safeTransfer(ERC20(_token1), msg.sender, _residue1);
         }
+        return (_residue0, _residue1);
     }
 
     function _applySlippageRelax(uint256 _theory, uint256 _slippage) internal view returns (uint256) {

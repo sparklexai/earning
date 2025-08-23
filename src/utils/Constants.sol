@@ -119,5 +119,6 @@ library Constants {
     error LP_FARMING_STILL_IN_USE();
     error WRONG_LP_REMOVAL_RATIO();
     error LP_POSITION_EXIST();
+    error LP_POSITION_CLOSED();
     error SINGLE_TOKEN_ZAPIN_ONLY();
 }

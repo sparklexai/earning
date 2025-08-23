@@ -32,15 +32,6 @@ interface IUniswapV3PoolImmutables {
     /// @return The max amount of liquidity per tick
     function maxLiquidityPerTick() external view returns (uint128);
 
-    function burn(int24 tickLower, int24 tickUpper, uint128 amount)
-        external
-        returns (uint256 amount0, uint256 amount1);
-
-    function observe(uint32[] calldata secondsAgos)
-        external
-        view
-        returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s);
-
     function slot0()
         external
         view

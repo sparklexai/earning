@@ -76,14 +76,7 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         address _liqAddStrategy,
         address farmingUserVault
     );
-    event LPPositionCreated(
-        address indexed _targetPool,
-        int24 _lowerT,
-        int24 _upperT,
-        uint256 _assetAmount,
-        uint256 _tokenId,
-        uint256 _posIdx
-    );
+    event LPPositionCreated(address indexed _targetPool, uint256 _tokenId, uint256 _posIdx);
     event LPPositionClosed(address indexed _targetPool, uint256 _tokenId, uint256 _posIdx);
     event LPPositionLiquidityAdded(
         address indexed _targetPool, uint256 _assetAmount, uint256 _tokenId, uint256 _posIdx
@@ -210,39 +203,35 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         external
         onlyStrategistOrOwner
         onlyVaultNotPaused
-        returns (uint256)
+        returns (LPFarmingHelper.ZapInPositionOutput memory)
     {
-        LPPositionInfo memory _positionInfo = _positionInfos[_targetPool];
-        if (_positionInfo.active) {
+        if (_positionInfos[_targetPool].active) {
             revert Constants.LP_POSITION_EXIST();
         }
 
-        SparkleXFarmingSetting memory _farmingSetting = _sparkleXFarmingSetting;
-
-        uint160 _currentX96 =
-            LPFarmingHelper(_farmingHelper).getTwapPriceInSqrtX96(_targetPool, _positionInfo.twapObserveInterval);
+        (uint160 _currentX96,) = LPFarmingHelper(_farmingHelper).getTwapPriceInSqrtX96(
+            _targetPool, _positionInfos[_targetPool].twapObserveInterval
+        );
         (address _pairedToken, bool _assetIsToken0) = getPairedTokenAddress(_targetPool);
         _assetAmount = _capAmountByBalance(_asset, _assetAmount, false);
 
-        LPFarmingHelper.ZapInPositionParams memory _params = LPFarmingHelper.ZapInPositionParams({
-            _pool: _targetPool,
-            _userVault: _farmingSetting.farmingUserVault,
-            _farmingMgr: _farmingSetting.farmingMgr,
-            _farmingStrategy: _farmingSetting.farmingStrategyBaseZapIn,
-            _amount0: (_assetIsToken0 ? _assetAmount : 0),
-            _amount1: (_assetIsToken0 ? 0 : _assetAmount),
-            _tickLower: _lowerT,
-            _tickUpper: _upperT,
-            _currentSqrtPX96: uint256(_currentX96)
-        });
-        uint256 _positionId = LPFarmingHelper(_farmingHelper).openV3PositionWithAmounts(_params);
-        _positionInfos[_targetPool].tokenId = _positionId;
-        uint256 _positionIdx = IUserVault(_farmingSetting.farmingUserVault).nextPositionId() - 1;
-        _positionInfos[_targetPool].userVaultIdx = _positionIdx;
-        _positionInfos[_targetPool].active = true;
-        allPositions.add(_targetPool);
-        emit LPPositionCreated(_targetPool, _lowerT, _upperT, _assetAmount, _positionId, _positionIdx);
-        return _positionId;
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput = _openNewPositionWithParams(
+            _targetPool,
+            LPFarmingHelper.ZapInPositionParams({
+                _pool: _targetPool,
+                _userVault: _sparkleXFarmingSetting.farmingUserVault,
+                _farmingMgr: _sparkleXFarmingSetting.farmingMgr,
+                _farmingStrategy: _sparkleXFarmingSetting.farmingStrategyBaseZapIn,
+                _amount0: (_assetIsToken0 ? _assetAmount : 0),
+                _amount1: (_assetIsToken0 ? 0 : _assetAmount),
+                _tickLower: _lowerT,
+                _tickUpper: _upperT,
+                _currentSqrtPX96: uint256(_currentX96)
+            })
+        );
+        // swap paired token to asset
+        _swapPairedTokenToAsset(_targetPool, _pairedToken, _positionInfos[_targetPool]);
+        return (_zapInOutput);
     }
 
     /*
@@ -252,11 +241,15 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         SparkleXFarmingSetting memory _farmingSetting = _sparkleXFarmingSetting;
 
         LPPositionInfo memory _positionInfo = _positionInfos[_targetPool];
+        if (!_positionInfo.active) {
+            revert Constants.LP_POSITION_CLOSED();
+        }
         (address _pairedToken,) = getPairedTokenAddress(_targetPool);
 
         // collect all fees before close position
         (,, LPFarmingHelper.ZapInPositionParams memory _params) = _collectPositionFees(_farmingSetting, _positionInfo);
-        (uint256 amount0Min, uint256 amount1Min) = this.getPositionAmount(_positionInfo);
+        (uint160 _currentPX96,,,,,,) = IUniswapV3PoolImmutables(_targetPool).slot0();
+        (uint256 amount0Min, uint256 amount1Min) = this.getPositionAmountWithCurrentX96(_currentPX96, _positionInfo);
 
         // close position completely
         _params._amount0 = TokenSwapper(_swapper).applySlippageRelax(amount0Min);
@@ -277,11 +270,15 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         external
         onlyStrategistOrOwner
         onlyVaultNotPaused
+        returns (LPFarmingHelper.ZapInPositionOutput memory)
     {
         SparkleXFarmingSetting memory _farmingSetting = _sparkleXFarmingSetting;
 
         LPPositionInfo memory _positionInfo = _positionInfos[_targetPool];
-        uint160 _currentX96 =
+        if (!_positionInfo.active) {
+            revert Constants.LP_POSITION_CLOSED();
+        }
+        (uint160 _currentX96,) =
             LPFarmingHelper(_farmingHelper).getTwapPriceInSqrtX96(_targetPool, _positionInfo.twapObserveInterval);
         (address _pairedToken, bool _assetIsToken0) = getPairedTokenAddress(_targetPool);
         _assetAmount = _capAmountByBalance(_asset, _assetAmount, false);
@@ -297,8 +294,12 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
             _tickUpper: 0,
             _currentSqrtPX96: uint256(_currentX96)
         });
-        LPFarmingHelper(_farmingHelper).addLiquidityV3(_params, _positionInfo.userVaultIdx);
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput =
+            LPFarmingHelper(_farmingHelper).addLiquidityV3(_params, _positionInfo.tokenId, _positionInfo.userVaultIdx);
+        // swap paired token to asset
+        _swapPairedTokenToAsset(_targetPool, _pairedToken, _positionInfos[_targetPool]);
         emit LPPositionLiquidityAdded(_targetPool, _assetAmount, _positionInfo.tokenId, _positionInfo.userVaultIdx);
+        return _zapInOutput;
     }
 
     /*
@@ -311,13 +312,17 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         SparkleXFarmingSetting memory _farmingSetting = _sparkleXFarmingSetting;
 
         LPPositionInfo memory _positionInfo = _positionInfos[_targetPool];
+        if (!_positionInfo.active) {
+            revert Constants.LP_POSITION_CLOSED();
+        }
         (address _pairedToken, bool _assetIsToken0) = getPairedTokenAddress(_targetPool);
 
         // collect all fees before remove liquidity position
         (,, LPFarmingHelper.ZapInPositionParams memory _params) = _collectPositionFees(_farmingSetting, _positionInfo);
+        (uint160 _currentPX96,,,,,,) = IUniswapV3PoolImmutables(_targetPool).slot0();
 
         // remove specified liquidity from position
-        (uint256 amount0Min, uint256 amount1Min) = this.getPositionAmount(_positionInfo);
+        (uint256 amount0Min, uint256 amount1Min) = this.getPositionAmountWithCurrentX96(_currentPX96, _positionInfo);
         _params._amount0 = TokenSwapper(_swapper).applySlippageRelax(amount0Min * _liquidityRatio / Constants.TOTAL_BPS);
         _params._amount1 = TokenSwapper(_swapper).applySlippageRelax(amount1Min * _liquidityRatio / Constants.TOTAL_BPS);
         _params._farmingStrategy = _farmingSetting.farmingStrategyLiqRemoval;
@@ -395,9 +400,21 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         if (!_positionInfo.active) {
             return (0, 0);
         } else {
-            uint160 _currentSqrtPX96 = LPFarmingHelper(_farmingHelper).getTwapPriceInSqrtX96(
+            (uint160 _currentSqrtPX96, int24 _tickTwap) = LPFarmingHelper(_farmingHelper).getTwapPriceInSqrtX96(
                 _positionInfo.pool, _positionInfo.twapObserveInterval
             );
+            return getPositionAmountWithCurrentX96(_currentSqrtPX96, _positionInfo);
+        }
+    }
+
+    function getPositionAmountWithCurrentX96(uint160 _currentSqrtPX96, LPPositionInfo calldata _positionInfo)
+        public
+        view
+        returns (uint256, uint256)
+    {
+        if (!_positionInfo.active) {
+            return (0, 0);
+        } else {
             address _posMgr = getDexPositionManager();
             (uint256 _token0Fee, uint256 _token1Fee) =
                 UniV3PositionMath.getLastComputedFees(_posMgr, _positionInfo.tokenId);
@@ -513,5 +530,20 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         (uint256 _feeToken0, uint256 _feeToken1) =
             LPFarmingHelper(_farmingHelper).collectFeeV3(_params, _positionInfo.userVaultIdx);
         return (_feeToken0, _feeToken1, _params);
+    }
+
+    function _openNewPositionWithParams(address _targetPool, LPFarmingHelper.ZapInPositionParams memory _params)
+        internal
+        returns (LPFarmingHelper.ZapInPositionOutput memory)
+    {
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput =
+            LPFarmingHelper(_farmingHelper).openV3PositionWithAmounts(_params);
+        _positionInfos[_targetPool].tokenId = _zapInOutput.posTokenId;
+        _positionInfos[_targetPool].userVaultIdx =
+            IUserVault(_sparkleXFarmingSetting.farmingUserVault).nextPositionId() - 1;
+        _positionInfos[_targetPool].active = true;
+        allPositions.add(_targetPool);
+        emit LPPositionCreated(_targetPool, _zapInOutput.posTokenId, _positionInfos[_targetPool].userVaultIdx);
+        return _zapInOutput;
     }
 }

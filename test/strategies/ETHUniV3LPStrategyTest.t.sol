@@ -34,8 +34,14 @@ contract ETHUniV3LPStrategyTest is TestUtils {
     address public constant stETH_ETH_FEED = 0x86392dC19c0b719886221c78AB11eb8Cf5c52812;
     uint32 public constant stETH_ETH_FEED_HEARTBEAT = 86400;
     address public constant wstETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
+    address public constant _univ3ETHweETHPool = 0x202A6012894Ae5c288eA824cbc8A9bfb26A49b93; //token1 is weETH
+    address public constant weETH_ETH_FEED = 0x5c9C449BbC9a6075A2c061dF312a35fd1E05fF22;
+    uint32 public constant weETH_ETH_FEED_HEARTBEAT = 86400;
+    address public constant weETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
     int24 public constant _tickSpacing0 = 1000;
     int24 public constant _tickSpacing1 = 1100;
+    int24 public constant _tickDiff = 66;
+    int24 public constant _tickDiffTight = 16;
 
     address public constant _farmingMgr = 0x29528Ea9E96c25322e531DF940d81CD9Bfc40a28;
     address public constant _farmingBaseZapIn = 0x491cC5dc8b66db1458B10241350BFD1783Cb94af;
@@ -55,14 +61,25 @@ contract ETHUniV3LPStrategyTest is TestUtils {
 
         swapper = new TokenSwapper();
         myStrategy = new ETHUniV3LPFarmingStrategy(address(stkVault));
+        strategyOwner = myStrategy.owner();
         strategist = myStrategy.strategist();
         farmingHelper = new LPFarmingHelper(address(myStrategy), _univ3PosMgr);
+
+        address _farmingHelperOwner = farmingHelper.owner();
+        uint256 _fullSlippage = farmingHelper.FULL_SLIPPAGE();
+        vm.expectRevert(Constants.INVALID_BPS_TO_SET.selector);
+        vm.startPrank(_farmingHelperOwner);
+        farmingHelper.setSlippage(_fullSlippage);
+        vm.stopPrank();
+        vm.startPrank(_farmingHelperOwner);
+        farmingHelper.setSlippage(farmingHelper.SLIPPAGE_TOLERANCE() - 1);
+        vm.stopPrank();
 
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), MAX_ETH_ALLOWED);
         vm.stopPrank();
 
-        vm.startPrank(myStrategy.owner());
+        vm.startPrank(strategyOwner);
         myStrategy.setSwapper(address(swapper));
         myStrategy.setFarmingHelper(address(farmingHelper));
         myStrategy.setTwapObserveInterval(_univ3ETHwstETHPool, 1200);
@@ -97,7 +114,8 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         (uint160 _currentPX96, int24 _tickL, int24 _tickH) = _getCurrentTicks(_univ3ETHwstETHPool);
         vm.startPrank(strategist);
         myStrategy.allocate(_testVal, EMPTY_CALLDATA);
-        myStrategy.zapInPosition(_univ3ETHwstETHPool, _testVal, _tickL, _tickH);
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput =
+            myStrategy.zapInPosition(_univ3ETHwstETHPool, _testVal, _tickL, _tickH);
         vm.stopPrank();
         {
             (address[] memory _allPositions, bool[] memory _positionsActive) = myStrategy.getAllPositions();
@@ -106,29 +124,25 @@ contract ETHUniV3LPStrategyTest is TestUtils {
             assertEq(_allPositions[0], _univ3ETHwstETHPool);
             assertEq(_positionsActive[0], true);
             assertTrue(_assertApproximateEq(_testVal, myStrategy.totalAssets(), BIGGER_TOLERANCE));
+            assertEq(
+                myStrategy.totalAssets(),
+                (ERC20(wETH).balanceOf(address(myStrategy)) + myStrategy.getAllPositionValuesInAsset())
+            );
         }
 
-        (, uint256 tokenId, uint256 userVaultIdx,,,,,, bool active) = myStrategy._positionInfos(_univ3ETHwstETHPool);
-        assertTrue(active);
-        assertTrue(tokenId > 0 && userVaultIdx > 0);
-
-        (uint256 _token0Amount, uint256 _token1Amount) =
-            UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentPX96);
-        assertTrue(_token0Amount > 0 && _token1Amount > 0);
         {
-            LPPositionInfo memory _positionInfo =
-                _getPositionInfoStruct(_univ3ETHwstETHPool, tokenId, userVaultIdx, true);
-            _checkPairTokenValue(_positionInfo, _token0Amount, _token1Amount, _testVal);
+            (, uint256 tokenId, uint256 userVaultIdx,,,,,,) = myStrategy._positionInfos(_univ3ETHwstETHPool);
+            _checkPosValueAfterZapIn(_univ3ETHwstETHPool, tokenId, _zapInOutput);
+            _checkLPValuationWithSlot0Price(_univ3ETHwstETHPool, tokenId, _testVal);
         }
 
         vm.startPrank(strategist);
         myStrategy.closePosition(_univ3ETHwstETHPool);
         vm.stopPrank();
-
-        (,,,,,,,, active) = myStrategy._positionInfos(_univ3ETHwstETHPool);
-        assertFalse(active);
-        assertTrue(_assertApproximateEq(_testVal, ERC20(wETH).balanceOf(address(myStrategy)), BIGGER_TOLERANCE));
         {
+            (,,,,,,,, bool activeAfter) = myStrategy._positionInfos(_univ3ETHwstETHPool);
+            assertFalse(activeAfter);
+            assertTrue(_assertApproximateEq(_testVal, ERC20(wETH).balanceOf(address(myStrategy)), BIGGER_TOLERANCE));
             (address[] memory _allPositionsNew, bool[] memory _positionsActiveNew) = myStrategy.getAllPositions();
             assertEq(_allPositionsNew[0], _univ3ETHwstETHPool);
             assertEq(_positionsActiveNew[0], false);
@@ -143,33 +157,36 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         (_testVal,) = TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 5 ether, 10 ether);
         bytes memory EMPTY_CALLDATA;
 
-        uint256 _half = _testVal / 2;
         (uint160 _currentPX96, int24 _tickL, int24 _tickH) = _getCurrentTicks(_univ3ETHwstETHPool);
         vm.startPrank(strategist);
         myStrategy.allocate(_testVal, EMPTY_CALLDATA);
-        myStrategy.zapInPosition(_univ3ETHwstETHPool, _half, _tickL, _tickH);
-        myStrategy.addLiquidityToPosition(_univ3ETHwstETHPool, _half);
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput1 =
+            myStrategy.zapInPosition(_univ3ETHwstETHPool, _testVal / 2, _tickL, _tickH);
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput2 =
+            myStrategy.addLiquidityToPosition(_univ3ETHwstETHPool, _testVal / 2);
         vm.stopPrank();
 
         (, uint256 tokenId, uint256 userVaultIdx,,,,,,) = myStrategy._positionInfos(_univ3ETHwstETHPool);
 
-        (uint256 _token0Amount, uint256 _token1Amount) =
-            UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentPX96);
-        assertTrue(_token0Amount > 0 && _token1Amount > 0);
         {
-            LPPositionInfo memory _positionInfo =
-                _getPositionInfoStruct(_univ3ETHwstETHPool, tokenId, userVaultIdx, true);
-            _checkPairTokenValue(_positionInfo, _token0Amount, _token1Amount, _testVal);
+            LPFarmingHelper.ZapInPositionOutput memory _zapInOutputTotal = LPFarmingHelper.ZapInPositionOutput({
+                posTokenId: tokenId,
+                inAmount: _zapInOutput1.inAmount + _zapInOutput2.inAmount,
+                residue0: _zapInOutput1.residue0 + _zapInOutput2.residue0,
+                residue1: _zapInOutput1.residue1 + _zapInOutput2.residue1
+            });
+            _checkPosValueAfterZapIn(_univ3ETHwstETHPool, tokenId, _zapInOutputTotal);
+        }
+
+        {
+            _checkLPValuationWithSlot0Price(_univ3ETHwstETHPool, tokenId, _testVal);
         }
 
         vm.startPrank(strategist);
-        myStrategy.removeLiquidityFromPosition(_univ3ETHwstETHPool, (Constants.TOTAL_BPS * _half / _testVal));
+        myStrategy.removeLiquidityFromPosition(_univ3ETHwstETHPool, (Constants.TOTAL_BPS / 2));
         vm.stopPrank();
-        (_token0Amount, _token1Amount) = UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentPX96);
         {
-            LPPositionInfo memory _positionInfoLeft =
-                _getPositionInfoStruct(_univ3ETHwstETHPool, tokenId, userVaultIdx, true);
-            _checkPairTokenValue(_positionInfoLeft, _token0Amount, _token1Amount, _half);
+            _checkLPValuationWithSlot0Price(_univ3ETHwstETHPool, tokenId, _testVal / 2);
         }
 
         uint256 _vaultAssetBefore = ERC20(wETH).balanceOf(address(stkVault));
@@ -280,9 +297,94 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         }
     }
 
+    function test_UniV3_Multiple_Positions(uint256 _testVal) public {
+        _fundFirstDepositGenerously(address(stkVault));
+
+        address _user = TestUtils._getSugarUser();
+
+        (_testVal,) = TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 5 ether, 10 ether);
+        bytes memory EMPTY_CALLDATA;
+
+        uint256 _biggerPortion = _testVal * 90 / 100;
+        (uint160 _currentPX96, int24 _tickL, int24 _tickH) = _getCurrentTicks(_univ3ETHwstETHPool);
+        (uint160 _currentPX96Second, int24 _tickLSecond, int24 _tickHSecond) =
+            _getCurrentTicksWithDiff(_univ3ETHweETHPool, _tickDiffTight);
+
+        vm.startPrank(strategyOwner);
+        myStrategy.setTwapObserveInterval(_univ3ETHweETHPool, 1800);
+        myStrategy.setPairOracles(_univ3ETHweETHPool, Constants.ZRO_ADDR, weETH_ETH_FEED, 0, weETH_ETH_FEED_HEARTBEAT);
+        vm.stopPrank();
+
+        {
+            (uint160 _currentSqrtPX96Slot0,,) = _getCurrentTicks(_univ3ETHweETHPool);
+            (uint160 _currentSqrtPX96Twap,) = farmingHelper.getTwapPriceInSqrtX96(_univ3ETHweETHPool, 1800);
+            console.log("_currentSqrtPX96Slot0:%d,_currentSqrtPX96Twap:%d", _currentSqrtPX96Slot0, _currentSqrtPX96Twap);
+        }
+
+        vm.startPrank(strategist);
+        myStrategy.allocate(_testVal, EMPTY_CALLDATA);
+        myStrategy.zapInPosition(_univ3ETHwstETHPool, _biggerPortion, _tickL, _tickH);
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutputSecond =
+            myStrategy.zapInPosition(_univ3ETHweETHPool, (_testVal - _biggerPortion), _tickLSecond, _tickHSecond);
+        vm.stopPrank();
+        {
+            (address[] memory _allPositions, bool[] memory _positionsActive) = myStrategy.getAllPositions();
+            assertEq(_allPositions.length, 2);
+            assertEq(_positionsActive.length, 2);
+            assertEq(_allPositions[0], _univ3ETHwstETHPool);
+            assertEq(_allPositions[1], _univ3ETHweETHPool);
+            assertEq(_positionsActive[0], true);
+            assertEq(_positionsActive[1], true);
+        }
+        {
+            (, uint256 tokenId,,,,,,,) = myStrategy._positionInfos(_univ3ETHweETHPool);
+            _checkPosValueAfterZapIn(_univ3ETHweETHPool, tokenId, _zapInOutputSecond);
+            (uint160 _currentSqrtPX96Slot0,,) = _getCurrentTicks(_univ3ETHweETHPool);
+            (uint256 _t0, uint256 _t1) =
+                UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentSqrtPX96Slot0);
+            console.log("_t0:%d,_t1:%d", _t0, _t1);
+        }
+        {
+            uint256 _totalAssets = myStrategy.totalAssets();
+            uint256 _assetBalIn = ERC20(wETH).balanceOf(address(myStrategy));
+            assertTrue(_assertApproximateEq(_testVal, _totalAssets, BIGGER_TOLERANCE));
+            assertEq(_totalAssets, (_assetBalIn + myStrategy.getAllPositionValuesInAsset()));
+            assertEq(
+                _totalAssets,
+                (
+                    _assetBalIn + myStrategy.getPositionValueInAsset(_univ3ETHwstETHPool)
+                        + myStrategy.getPositionValueInAsset(_univ3ETHweETHPool)
+                )
+            );
+        }
+
+        vm.startPrank(strategist);
+        myStrategy.closePosition(_univ3ETHweETHPool);
+        vm.stopPrank();
+        {
+            (address[] memory _allPositions, bool[] memory _positionsActive) = myStrategy.getAllPositions();
+            assertEq(_allPositions.length, 2);
+            assertEq(_positionsActive.length, 2);
+            assertEq(_positionsActive[0], true);
+            assertEq(_positionsActive[1], false);
+        }
+        {
+            uint256 _totalAssets = myStrategy.totalAssets();
+            assertTrue(_assertApproximateEq(_testVal, _totalAssets, BIGGER_TOLERANCE));
+            assertEq(
+                _totalAssets,
+                (ERC20(wETH).balanceOf(address(myStrategy)) + myStrategy.getPositionValueInAsset(_univ3ETHwstETHPool))
+            );
+        }
+    }
+
     function _getCurrentTicks(address _pool) internal view returns (uint160, int24, int24) {
+        return _getCurrentTicksWithDiff(_pool, _tickDiff);
+    }
+
+    function _getCurrentTicksWithDiff(address _pool, int24 _diff) internal view returns (uint160, int24, int24) {
         (uint160 sqrtPriceX96, int24 tick,,,,,) = IUniswapV3PoolImmutables(_pool).slot0();
-        return (sqrtPriceX96, tick - 66, tick + 66);
+        return (sqrtPriceX96, tick - _diff, tick + _diff);
     }
 
     function _getPositionInfoStruct(address _pool, uint256 _tokenId, uint256 _userVaultIdx, bool _active)
@@ -290,18 +392,7 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         view
         returns (LPPositionInfo memory)
     {
-        LPPositionInfo memory _positionInfo = LPPositionInfo({
-            pool: _pool,
-            tokenId: _tokenId,
-            userVaultIdx: _userVaultIdx,
-            twapObserveInterval: 900,
-            assetOracle: (_pool == _univ3ETHwstETHPool ? Constants.ZRO_ADDR : Constants.ZRO_ADDR),
-            otherOracle: (_pool == _univ3ETHwstETHPool ? stETH_ETH_FEED : stETH_ETH_FEED),
-            assetOracleHeartbeat: (_pool == _univ3ETHwstETHPool ? 0 : 0),
-            otherOracleHeartbeat: (_pool == _univ3ETHwstETHPool ? stETH_ETH_FEED_HEARTBEAT : stETH_ETH_FEED_HEARTBEAT),
-            active: _active
-        });
-        return _positionInfo;
+        return _getPosInfoFromStrategy(_pool);
     }
 
     function _checkPairTokenValue(
@@ -357,5 +448,75 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         console.log("_token0OwedBefore:%d,_token1OwedBefore:%d", _token0OwedBefore, _token1OwedBefore);
         console.log("_feeToken0:%d,_feeToken1:%d", _feeToken0, _feeToken1);
         assertTrue(_feeToken0 > _token0OwedBefore && _feeToken1 > _token1OwedBefore);
+    }
+
+    function _checkPosValueAfterZapIn(
+        address _targetPool,
+        uint256 tokenId,
+        LPFarmingHelper.ZapInPositionOutput memory _zapInOutput
+    ) internal {
+        (uint160 _currentPX96Slot0,,) = _getCurrentTicks(_targetPool);
+        (uint160 _currentSqrtPX96Twap,) = farmingHelper.getTwapPriceInSqrtX96(_targetPool, 1800);
+        bool _assetIsToken0 = (_targetPool == _univ3ETHwstETHPool) ? false : true;
+
+        (uint256 _t0Twap, uint256 _t1Twap) =
+            UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentSqrtPX96Twap);
+        console.log("_t0Twap:%d,_t1Twap:%d", _t0Twap, _t1Twap);
+
+        (uint256 _t0, uint256 _t1) = UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentPX96Slot0);
+        console.log("_t0:%d,_t1:%d", _t0, _t1);
+
+        LPPositionInfo memory _targetPosInfo = _getPosInfoFromStrategy(_targetPool);
+        assertTrue(_targetPosInfo.active);
+        assertTrue(_targetPosInfo.userVaultIdx > 0);
+        assertEq(_targetPosInfo.tokenId, tokenId);
+        uint256 _zapInAsset = _zapInOutput.inAmount;
+        uint256 _zapInAssetTwap;
+        if (_assetIsToken0) {
+            _zapInAsset = _zapInAsset - _zapInOutput.residue0
+                - myStrategy.getPairedTokenValueInAsset(_targetPosInfo, _zapInOutput.residue1);
+            _zapInAssetTwap = _t0Twap + myStrategy.getPairedTokenValueInAsset(_targetPosInfo, _t1Twap);
+        } else {
+            _zapInAsset = _zapInAsset - _zapInOutput.residue1
+                - myStrategy.getPairedTokenValueInAsset(_targetPosInfo, _zapInOutput.residue0);
+            _zapInAssetTwap = _t1Twap + myStrategy.getPairedTokenValueInAsset(_targetPosInfo, _t0Twap);
+        }
+        console.log("_zapInAsset:%d,_zapInAssetTwap:%d", _zapInAsset, _zapInAssetTwap);
+        assertTrue(_assertApproximateEq(_zapInAsset, _zapInAssetTwap, BIGGER_TOLERANCE));
+    }
+
+    function _getPosInfoFromStrategy(address _targetPool) internal view returns (LPPositionInfo memory) {
+        (
+            address _pool,
+            uint256 _tokenId,
+            uint256 _userVaultIdx,
+            uint32 _twapObserveInterval,
+            address _assetOracle,
+            address _otherOracle,
+            uint32 _assetOracleHeartbeat,
+            uint32 _otherOracleHeartbeat,
+            bool _active
+        ) = myStrategy._positionInfos(_targetPool);
+        return LPPositionInfo({
+            pool: _pool,
+            tokenId: _tokenId,
+            userVaultIdx: _userVaultIdx,
+            twapObserveInterval: _twapObserveInterval,
+            assetOracle: _assetOracle,
+            otherOracle: _otherOracle,
+            assetOracleHeartbeat: _assetOracleHeartbeat,
+            otherOracleHeartbeat: _otherOracleHeartbeat,
+            active: _active
+        });
+    }
+
+    function _checkLPValuationWithSlot0Price(address _targetPool, uint256 tokenId, uint256 _expected) internal {
+        (uint160 _currentPX96,,) = _getCurrentTicks(_targetPool);
+        {
+            (uint256 _token0Amount, uint256 _token1Amount) =
+                UniV3PositionMath.getAmountsForPosition(_univ3PosMgr, tokenId, _currentPX96);
+            assertTrue(_token0Amount > 0 && _token1Amount > 0);
+            _checkPairTokenValue(_getPosInfoFromStrategy(_targetPool), _token0Amount, _token1Amount, _expected);
+        }
     }
 }
