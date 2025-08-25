@@ -15,8 +15,6 @@ import {IManager} from "../../interfaces/sparklex-farming/IManager.sol";
 import {IUserVault} from "../../interfaces/sparklex-farming/IUserVault.sol";
 import {UniV3PositionMath} from "../../src/strategies/uniswap/UniV3PositionMath.sol";
 import {LPFarmingHelper} from "../../src/strategies/uniswap/LPFarmingHelper.sol";
-import {TickMath} from "../../src/strategies/uniswap/TickMath.sol";
-import {FullMath} from "../../src/strategies/uniswap/FullMath.sol";
 import {ETHUniV3LPFarmingStrategy} from "../../src/strategies/uniswap/ethereum/ETHUniV3LPFarmingStrategy.sol";
 import {LPPositionInfo} from "../../src/strategies/uniswap/UniV3LPFarmingStrategy.sol";
 
@@ -136,6 +134,16 @@ contract ETHUniV3LPStrategyTest is TestUtils {
             _checkLPValuationWithSlot0Price(_univ3ETHwstETHPool, tokenId, _testVal);
         }
 
+        vm.expectRevert(Constants.LP_POSITION_EXIST.selector);
+        vm.startPrank(strategist);
+        myStrategy.zapInPosition(_univ3ETHwstETHPool, _testVal, _tickL, _tickH);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.LP_FARMING_STILL_IN_USE.selector);
+        vm.startPrank(strategist);
+        myStrategy.collectAll(EMPTY_CALLDATA);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.closePosition(_univ3ETHwstETHPool);
         vm.stopPrank();
@@ -147,6 +155,21 @@ contract ETHUniV3LPStrategyTest is TestUtils {
             assertEq(_allPositionsNew[0], _univ3ETHwstETHPool);
             assertEq(_positionsActiveNew[0], false);
         }
+
+        vm.expectRevert(Constants.LP_POSITION_CLOSED.selector);
+        vm.startPrank(strategist);
+        myStrategy.closePosition(_univ3ETHwstETHPool);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.LP_POSITION_CLOSED.selector);
+        vm.startPrank(strategist);
+        myStrategy.addLiquidityToPosition(_univ3ETHwstETHPool, _testVal / 2);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.LP_POSITION_CLOSED.selector);
+        vm.startPrank(strategist);
+        myStrategy.removeLiquidityFromPosition(_univ3ETHwstETHPool, 1);
+        vm.stopPrank();
     }
 
     function test_UniV3_Add_Remove_Liquidity(uint256 _testVal) public {
@@ -182,6 +205,11 @@ contract ETHUniV3LPStrategyTest is TestUtils {
             _checkLPValuationWithSlot0Price(_univ3ETHwstETHPool, tokenId, _testVal);
         }
 
+        vm.expectRevert(Constants.WRONG_LP_REMOVAL_RATIO.selector);
+        vm.startPrank(strategist);
+        myStrategy.removeLiquidityFromPosition(_univ3ETHwstETHPool, Constants.TOTAL_BPS);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.removeLiquidityFromPosition(_univ3ETHwstETHPool, (Constants.TOTAL_BPS / 2));
         vm.stopPrank();
@@ -210,14 +238,28 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         (_testVal,) = TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, 100 ether, 500 ether);
         bytes memory EMPTY_CALLDATA;
 
-        (, int24 _tickL, int24 _tickH) = _getCurrentTicks(_univ3ETHwstETHPool);
+        (uint160 _currentPX96, int24 _tickL, int24 _tickH) = _getCurrentTicks(_univ3ETHwstETHPool);
         vm.startPrank(strategist);
         myStrategy.allocate(_testVal, EMPTY_CALLDATA);
         myStrategy.zapInPosition(_univ3ETHwstETHPool, _testVal, _tickL, _tickH);
         vm.stopPrank();
-        (, uint256 tokenId,,,,,,,) = myStrategy._positionInfos(_univ3ETHwstETHPool);
+        LPPositionInfo memory _posInfo = _getPosInfoFromStrategy(_univ3ETHwstETHPool);
 
-        _washTradingToGenerateFees(tokenId);
+        _washTradingToGenerateFees(_posInfo.tokenId);
+
+        vm.startPrank(strategist);
+        myStrategy.closePosition(_univ3ETHwstETHPool);
+        (uint256 _zeroFee0, uint256 _zeroFee1) = myStrategy.collectPositionFee(_univ3ETHwstETHPool);
+        vm.stopPrank();
+
+        assertEq(_zeroFee0, 0);
+        assertEq(_zeroFee1, 0);
+        (_zeroFee0, _zeroFee1) = myStrategy.getPositionAmount(_posInfo);
+        assertEq(_zeroFee0, 0);
+        assertEq(_zeroFee1, 0);
+        (_zeroFee0, _zeroFee1) = myStrategy.getPositionAmountWithCurrentX96(_currentPX96, _posInfo);
+        assertEq(_zeroFee0, 0);
+        assertEq(_zeroFee1, 0);
     }
 
     function test_UniV3_Position_AmountMath(uint256 _testVal) public {
@@ -376,6 +418,69 @@ contract ETHUniV3LPStrategyTest is TestUtils {
                 (ERC20(wETH).balanceOf(address(myStrategy)) + myStrategy.getPositionValueInAsset(_univ3ETHwstETHPool))
             );
         }
+    }
+
+    function test_UniV3_EdgeCases(uint256 _testVal) public {
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(strategyOwner);
+        myStrategy.setSparkleXFarmingAddresses(
+            Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR, Constants.ZRO_ADDR
+        );
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(strategyOwner);
+        myStrategy.setFarmingHelper(Constants.ZRO_ADDR);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        vm.startPrank(strategyOwner);
+        myStrategy.setPairOracles(_univ3ETHwstETHPool, Constants.ZRO_ADDR, Constants.ZRO_ADDR, 0, 0);
+        vm.stopPrank();
+        vm.startPrank(strategyOwner);
+        myStrategy.setPairOracles(_univ3ETHwstETHPool, _univ3ETHwstETHPool, _univ3ETHwstETHPool, 0, 0);
+        vm.stopPrank();
+        {
+            LPPositionInfo memory _posInfo = _getPosInfoFromStrategy(_univ3ETHwstETHPool);
+            assertEq(_posInfo.otherOracleHeartbeat, myStrategy.DEFAULT_TWAP_INTERVAL());
+        }
+
+        vm.startPrank(strategyOwner);
+        myStrategy.setTwapObserveInterval(_univ3ETHwstETHPool, 0);
+        vm.stopPrank();
+        {
+            LPPositionInfo memory _posInfo = _getPosInfoFromStrategy(_univ3ETHwstETHPool);
+            assertEq(_posInfo.twapObserveInterval, myStrategy.DEFAULT_TWAP_INTERVAL());
+        }
+
+        {
+            LPPositionInfo memory _newPosInfo = LPPositionInfo({
+                pool: 0x4e68Ccd3E89f51C3074ca5072bbAC773960dFa36,
+                tokenId: 0,
+                userVaultIdx: 0,
+                twapObserveInterval: myStrategy.DEFAULT_TWAP_INTERVAL(),
+                assetOracle: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,
+                otherOracle: 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6,
+                assetOracleHeartbeat: 86400,
+                otherOracleHeartbeat: 86400,
+                active: false
+            });
+            (int256 _assetP,, uint8 _assetPDecimal) = swapper.getPriceFromChainLink(_newPosInfo.assetOracle);
+            uint256 _p = uint256(_assetP) / Constants.convertDecimalToUnit(uint256(_assetPDecimal));
+            assertTrue(
+                _assertApproximateEq(
+                    myStrategy.getPairedTokenValueInAsset(_newPosInfo, MIN_SHARE * _p), 1e18, BIGGER_TOLERANCE
+                )
+            );
+        }
+
+        vm.expectRevert(Constants.INVALID_ADDRESS_TO_SET.selector);
+        new LPFarmingHelper(Constants.ZRO_ADDR, Constants.ZRO_ADDR);
+
+        vm.expectRevert(Constants.INVALID_HELPER_CALLER.selector);
+        farmingHelper.createSparkleXFarmingVault(Constants.ZRO_ADDR);
+        vm.expectRevert(Constants.WRONG_TWAP_OBSERVE_INTERVAL.selector);
+        farmingHelper.getTwapPriceInSqrtX96(_univ3ETHwstETHPool, 0);
     }
 
     function _getCurrentTicks(address _pool) internal view returns (uint160, int24, int24) {
