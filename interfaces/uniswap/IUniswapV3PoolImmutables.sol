@@ -31,4 +31,17 @@ interface IUniswapV3PoolImmutables {
     /// also prevents out-of-range liquidity from being used to prevent adding in-range liquidity to a pool
     /// @return The max amount of liquidity per tick
     function maxLiquidityPerTick() external view returns (uint128);
+
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
 }

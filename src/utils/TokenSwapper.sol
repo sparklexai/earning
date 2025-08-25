@@ -495,6 +495,18 @@ contract TokenSwapper is Ownable {
             );
     }
 
+    function convertAmountWithPriceFeed(
+        address _oracle,
+        uint32 _heartbeat,
+        uint256 _amount,
+        ERC20 _fromToken,
+        ERC20 _toToken
+    ) public view returns (uint256) {
+        (int256 _p,, uint8 _pDecimal) = getPriceFromChainLinkWithHeartbeat(_oracle, _heartbeat);
+        return _amount * uint256(_p) * Constants.convertDecimalToUnit(_toToken.decimals())
+            / (Constants.convertDecimalToUnit(_pDecimal) * Constants.convertDecimalToUnit(_fromToken.decimals()));
+    }
+
     function _getReceiverFromPendleCalldata(bytes calldata _data) public pure returns (address) {
         return abi.decode(_data[4:36], (address));
     }
