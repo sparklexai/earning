@@ -17,8 +17,10 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
-    IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
-    IPool sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
+    IPool public aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
+    IPool public sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
+    address public aaveOracle = 0x54586bE62E3c3580375aE3723C145253060Ca0C2;
+    address public sparkOracle = 0x8105f69D9C41644c6A0803fDA7D03Aa70996cFD9;
 
     ///////////////////////////////
     // member storage
@@ -139,9 +141,13 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
     }
 
     function _withdrawCollateralFromAAVE(uint256 _toWithdraw) internal returns (uint256) {
-        (uint256 _netSupply,,) = getNetSupplyAndDebt(false);
-        if (_toWithdraw > _netSupply) {
-            _toWithdraw = _netSupply;
+        if (_toWithdraw == type(uint256).max) {
+            _toWithdraw = AAVEHelper(_aaveHelper)._supplyAToken().balanceOf(address(this));
+        } else {
+            (uint256 _netSupply,,) = getNetSupplyAndDebt(false);
+            if (_toWithdraw > _netSupply) {
+                _toWithdraw = _netSupply;
+            }
         }
         uint256 _withdrawn =
             aavePool.withdraw(address(AAVEHelper(_aaveHelper)._supplyToken()), _toWithdraw, address(this));

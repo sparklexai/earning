@@ -249,8 +249,7 @@ contract ETHEtherFiAAVEStrategy is BaseAAVEStrategy {
         uint256 _toRepay = amount + premium;
 
         if (_lev) {
-            // Leverage: use flashloan to deposit borrowed wETH into ether.fi and then supply weETH to AAVE                ;
-
+            // Leverage: use flashloan to deposit borrowed wETH into ether.fi and then supply weETH to AAVE
             _supplyToAAVE(
                 _depositToEtherFi(_capAmountByBalance(_asset, amount, false)) + _supplyToken.balanceOf(address(this))
             );

@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {WETH} from "../../interfaces/IWETH.sol";
 import {ICurveRouter} from "../../interfaces/curve/ICurveRouter.sol";
 import {ICurvePool} from "../../interfaces/curve/ICurvePool.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -65,6 +66,7 @@ contract TokenSwapper is Ownable {
     ///////////////////////////////
     // stalecoins and related chainlink oracles - Ethereum mainnet
     ///////////////////////////////
+    address payable constant wETH = payable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address public constant usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address public constant usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address public constant usds = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
@@ -268,6 +270,37 @@ contract TokenSwapper is Ownable {
         uint256 _out = curveRouter.exchange(_route, _params, _inAmount, _minOut, _pools, msg.sender);
         emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
         _revokeTokenApproval(inToken, address(curveRouter));
+        return _out;
+    }
+
+    /**
+     * @dev swap in a curve 2-token pool with expected minimum and best-in-theory output for a given ETH pair.
+     */
+    function swapInCurveWithETH(bool ethIn, address pairedToken, address singlePool, uint256 _inAmount, uint256 _minOut)
+        external
+        onlyWhitelistedCaller
+        returns (uint256)
+    {
+        address inToken = ethIn ? wETH : pairedToken;
+        address outToken = ethIn ? pairedToken : wETH;
+        int128 _pairedIdx = int128(int256(_getCurvePoolIndex(singlePool, pairedToken)));
+        int128 _ethIdx = _pairedIdx == 0 ? int128(1) : int128(0);
+
+        SafeERC20.safeTransferFrom(ERC20(inToken), msg.sender, address(this), _inAmount);
+        if (!ethIn) {
+            _approveTokenToDex(inToken, singlePool);
+        } else {
+            WETH(wETH).withdraw(_inAmount);
+        }
+        uint256 _out = ICurvePool(singlePool).exchange{value: (ethIn ? _inAmount : 0)}(
+            (ethIn ? _ethIdx : _pairedIdx), (ethIn ? _pairedIdx : _ethIdx), _inAmount, _minOut
+        );
+        emit SwapInCurve(inToken, outToken, msg.sender, _inAmount, _out);
+        if (!ethIn) {
+            WETH(wETH).deposit{value: _out}();
+            _revokeTokenApproval(inToken, singlePool);
+        }
+        SafeERC20.safeTransfer(ERC20(outToken), msg.sender, _out);
         return _out;
     }
 
