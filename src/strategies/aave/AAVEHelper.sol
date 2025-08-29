@@ -28,9 +28,9 @@ contract AAVEHelper is Ownable {
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
-    IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
-    IPool sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
-    IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
+    IPool public aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
+    IPool public sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
+    IAaveOracle public aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
 
     ///////////////////////////////
     // member storage

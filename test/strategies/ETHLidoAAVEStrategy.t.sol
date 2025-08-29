@@ -59,6 +59,8 @@ contract ETHLidoAAVEStrategyTest is TestUtils {
         aaveHelper = new AAVEHelper(address(myStrategy), ERC20(wstETH), ERC20(wETH), aWstETH, 1);
         aaveHelperOwner = aaveHelper.owner();
         swapper.setWhitelist(address(myStrategy), true);
+        assertEq(address(aaveHelper.aavePool()), address(aaveHelper.sparkPool()));
+        assertEq(address(aaveHelper.aaveOracle()), address(myStrategy.sparkOracle()));
 
         vm.startPrank(stkVOwner);
         stkVault.addStrategy(address(myStrategy), MAX_ETH_ALLOWED);
@@ -298,6 +300,76 @@ contract ETHLidoAAVEStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_testVal, _ta, 10 * BIGGER_TOLERANCE));
 
         vm.clearMockedCalls();
+    }
+
+    function test_LidoLoop_edge_cases(uint256 _testVal) public {
+        _fundFirstDepositGenerously(address(stkVault));
+
+        bytes memory EMPTY_CALLDATA;
+        address _dummyUsr = _getSugarUser();
+
+        uint256 _borrowDummy = Constants.ONE_ETHER;
+        uint256 _borrowResidue = BIGGER_TOLERANCE;
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_CALLER.selector);
+        myStrategy.executeOperation(wETH, 0, 1, strategist, EMPTY_CALLDATA);
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_INITIATOR.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, 0, 1, strategist, EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_ASSET.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wstETH, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_PREMIUM.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, 0, 1, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.expectRevert(Constants.WRONG_AAVE_FLASHLOAN_AMOUNT.selector);
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, type(uint256).max, 0, address(myStrategy), EMPTY_CALLDATA);
+        vm.stopPrank();
+
+        vm.startPrank(_dummyUsr);
+        ERC20(wETH).transfer(address(myStrategy), _borrowResidue);
+        vm.stopPrank();
+        assertEq(ERC20(wETH).balanceOf(address(myStrategy)), _borrowResidue);
+        uint256[] memory _previewCollects = aaveHelper.previewCollect(_borrowResidue);
+        assertEq(_previewCollects[0], 0);
+        uint256 _vaultBalBefore = ERC20(wETH).balanceOf(address(stkVault));
+        vm.startPrank(strategist);
+        myStrategy.collect(_borrowResidue, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(ERC20(wETH).balanceOf(address(stkVault)), _vaultBalBefore + _borrowResidue);
+
+        (_testVal,) = TestUtils._makeVaultDeposit(address(stkVault), _dummyUsr, _testVal, 5 ether, 10 ether);
+        vm.startPrank(strategist);
+        myStrategy.invest(_testVal, 0, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(ERC20(wETH).balanceOf(address(myStrategy)), 0);
+        _previewCollects = aaveHelper.previewCollect(_borrowResidue);
+        assertEq(_previewCollects[2], 0);
+        _vaultBalBefore = ERC20(wETH).balanceOf(address(stkVault));
+        vm.startPrank(strategist);
+        myStrategy.collect(_borrowResidue, EMPTY_CALLDATA);
+        vm.stopPrank();
+        assertEq(ERC20(wETH).balanceOf(address(stkVault)), _vaultBalBefore + _borrowResidue);
+
+        uint256 _strategyBal = ERC20(wETH).balanceOf(address(myStrategy));
+        vm.startPrank(_dummyUsr);
+        ERC20(wETH).transfer(address(myStrategy), _borrowDummy + _borrowResidue);
+        vm.stopPrank();
+        assertEq(ERC20(wETH).balanceOf(address(myStrategy)), _strategyBal + _borrowDummy + _borrowResidue);
+
+        _vaultBalBefore = ERC20(wETH).balanceOf(address(stkVault));
+        vm.startPrank(address(aavePool));
+        myStrategy.executeOperation(wETH, _borrowDummy, 0, address(myStrategy), abi.encode(true, 0, EMPTY_CALLDATA));
+        vm.stopPrank();
+        assertEq(ERC20(wETH).balanceOf(address(stkVault)), _vaultBalBefore + _borrowResidue + _strategyBal);
     }
 
     function _printAAVEPosition() internal view returns (uint256, uint256) {
