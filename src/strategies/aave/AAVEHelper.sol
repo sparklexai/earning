@@ -28,9 +28,9 @@ contract AAVEHelper is Ownable {
     ///////////////////////////////
     // integrations - Ethereum mainnet
     ///////////////////////////////
-    IPool aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
-    IPool sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
-    IAaveOracle aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
+    IPool public aavePool = IPool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
+    IPool public sparkPool = IPool(0xC13e21B648A5Ee794902342038FF3aDAB66BE987);
+    IAaveOracle public aaveOracle = IAaveOracle(0x54586bE62E3c3580375aE3723C145253060Ca0C2);
 
     ///////////////////////////////
     // member storage
@@ -53,6 +53,8 @@ contract AAVEHelper is Ownable {
     event AAVEHelperTokensChanged(
         address indexed supplyAToken, address indexed supplyToken, address indexed borrowToken, uint8 eMode
     );
+    event AAVEPoolChanged(address indexed _old, address indexed _new);
+    event AAVEOracleChanged(address indexed _old, address indexed _new);
 
     constructor(address strategy, ERC20 supplyToken, ERC20 borrowToken, ERC20 supplyAToken, uint8 eMode)
         Ownable(msg.sender)
@@ -61,6 +63,18 @@ contract AAVEHelper is Ownable {
             _switchToBNBChain();
         }
         _strategy = strategy;
+
+        address _newAAVEPool = address(BaseAAVEStrategy(_strategy).aavePool());
+        if (_newAAVEPool != address(aavePool)) {
+            emit AAVEPoolChanged(address(aavePool), _newAAVEPool);
+            aavePool = IPool(_newAAVEPool);
+
+            if (_newAAVEPool == address(sparkPool)) {
+                address _newAAVEOracle = BaseAAVEStrategy(_strategy).sparkOracle();
+                emit AAVEOracleChanged(address(aaveOracle), _newAAVEOracle);
+                aaveOracle = IAaveOracle(_newAAVEOracle);
+            }
+        }
 
         _setTokensAndApprovals(supplyToken, borrowToken, supplyAToken);
 
@@ -176,8 +190,13 @@ contract AAVEHelper is Ownable {
     function getMaxLTV() public view returns (uint256) {
         uint256 _ltv = 0;
         if (_eMode > 0) {
-            DataTypes.CollateralConfig memory config = aavePool.getEModeCategoryCollateralConfig(_eMode);
-            _ltv = config.ltv;
+            if (address(aavePool) == address(sparkPool)) {
+                DataTypes.EModeCategoryLegacy memory config = aavePool.getEModeCategoryData(_eMode);
+                _ltv = config.ltv;
+            } else {
+                DataTypes.CollateralConfig memory config = aavePool.getEModeCategoryCollateralConfig(_eMode);
+                _ltv = config.ltv;
+            }
         } else {
             DataTypes.ReserveDataLegacy memory reserveData = aavePool.getReserveData(address(_supplyToken));
             _ltv = _getReserveLTV(reserveData.configuration);
