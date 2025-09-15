@@ -39,7 +39,7 @@ contract FuzzBscXAUMKinzaStrategyTest is TestUtils {
     address USDC_USD_Feed_BNB = 0x51597f405303C4377E36123cBc172b13269EA163;
     address XAU_USD_Feed_BNB = 0x86896fEB19D8A607c3b11f2aF50A0f239Bd71CD0;
     address XAUM_Whale = 0xD5D2cAbE2ab21D531e5f96f1AeeF26D79f4b6583;
-    address USDC_Whale = 0xF977814e90dA44bFA03b6295A0616a897441aceC;
+    address USDC_Whale = 0xecA88125a5ADbe82614ffC12D0DB554E2e2867C8;
     uint256 public xaumPerBNB = 25e16; // 1 BNB worth one quarter of 1 XAUM
 
     // Handler for invariant testing

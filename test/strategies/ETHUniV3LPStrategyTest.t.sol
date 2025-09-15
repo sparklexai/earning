@@ -344,7 +344,7 @@ contract ETHUniV3LPStrategyTest is TestUtils {
 
         address _user = TestUtils._getSugarUser();
 
-        (_testVal,) = TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, (1 ether / 5), 1 ether);
+        (_testVal,) = TestUtils._makeVaultDeposit(address(stkVault), _user, _testVal, (1 ether / 10), (1 ether / 5));
         bytes memory EMPTY_CALLDATA;
 
         uint256 _biggerPortion = _testVal * 90 / 100;
