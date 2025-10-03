@@ -55,7 +55,7 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
         if (_aaveHelper != Constants.ZRO_ADDR) {
             _revokeTokenApproval(address(AAVEHelper(_aaveHelper)._supplyToken()), _aaveHelper);
             _revokeTokenApproval(address(AAVEHelper(_aaveHelper)._borrowToken()), _aaveHelper);
-            _approveDelegationToAAVEHelper(0, AAVEHelper(_aaveHelper)._eMode());
+            _approveDelegationToAAVEHelper(0);
         }
 
         emit AAVEHelperChanged(_aaveHelper, _newHelper);
@@ -319,14 +319,14 @@ abstract contract BaseAAVEStrategy is BaseSparkleXStrategy {
 
     function _delegateCreditToHelper() internal {
         uint8 _eMode = AAVEHelper(_aaveHelper)._eMode();
-        address variableDebtToken = _approveDelegationToAAVEHelper(type(uint256).max, _eMode);
+        address variableDebtToken = _approveDelegationToAAVEHelper(type(uint256).max);
         if (aavePool.getUserEMode(address(this)) != _eMode) {
             aavePool.setUserEMode(_eMode);
         }
         emit DebtDelegateToAAVEHelper(address(this), _aaveHelper, variableDebtToken, _eMode);
     }
 
-    function _approveDelegationToAAVEHelper(uint256 _allowance, uint8 _eMode) internal returns (address) {
+    function _approveDelegationToAAVEHelper(uint256 _allowance) internal returns (address) {
         address variableDebtToken;
         address _borrowTokenAddr = address(AAVEHelper(_aaveHelper)._borrowToken());
 

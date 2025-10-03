@@ -336,6 +336,10 @@ contract BscXAUMKinzaStrategyTest is TestUtils {
         myStrategy.swapViaUniswap(address(spUSDVault), 1, USDT_USDC_POOL, XAUM_USDT_POOL);
         vm.stopPrank();
 
+        vm.startPrank(swapper.owner());
+        swapper.setSlippage(9000);
+        vm.stopPrank();
+
         vm.startPrank(strategist);
         myStrategy.setBorrowSwapPoolApproval(USDT_USDC_POOL, true);
         myStrategy.setBorrowSwapPoolApproval(XAUM_USDT_POOL, true);

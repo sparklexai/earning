@@ -270,6 +270,9 @@ contract LPFarmingHelper is Ownable {
         int56 _tickCumulativeDiff = tickCumulatives[1] - tickCumulatives[0];
         int56 _timeDiff = int56(int32(_twapInterval));
         int24 _tickTwap = int24(_tickCumulativeDiff / _timeDiff);
+        if (_tickTwap < 0 && _tickCumulativeDiff % _timeDiff != 0) {
+            _tickTwap--;
+        }
         return (TickMath.getSqrtRatioAtTick(_tickTwap), _tickTwap);
     }
 

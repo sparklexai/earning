@@ -417,7 +417,7 @@ contract UniV3LPFarmingStrategy is BaseSparkleXStrategy {
         } else {
             address _posMgr = getDexPositionManager();
             (uint256 _token0Fee, uint256 _token1Fee) =
-                UniV3PositionMath.getLastComputedFees(_posMgr, _positionInfo.tokenId);
+                UniV3PositionMath.getLatestFees(_posMgr, _positionInfo.pool, _positionInfo.tokenId);
             (uint256 _token0InLp, uint256 _token1InLp) =
                 UniV3PositionMath.getAmountsForPosition(_posMgr, _positionInfo.tokenId, _currentSqrtPX96);
             return (_token0Fee + _token0InLp, _token1Fee + _token1InLp);

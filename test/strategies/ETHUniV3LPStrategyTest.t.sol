@@ -245,7 +245,7 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         vm.stopPrank();
         LPPositionInfo memory _posInfo = _getPosInfoFromStrategy(_univ3ETHwstETHPool);
 
-        _washTradingToGenerateFees(_posInfo.tokenId);
+        _washTradingToGenerateFees(_posInfo.pool, _posInfo.tokenId);
 
         vm.startPrank(strategist);
         myStrategy.closePosition(_univ3ETHwstETHPool);
@@ -511,7 +511,7 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         assertTrue(_assertApproximateEq(_expected, (_pairedValInAsset + _assetAmount), BIGGER_TOLERANCE));
     }
 
-    function _washTradingToGenerateFees(uint256 _nftPositionId) internal {
+    function _washTradingToGenerateFees(address _pool, uint256 _nftPositionId) internal {
         address _user = TestUtils._getSugarUser();
 
         vm.startPrank(swapper.owner());
@@ -527,7 +527,7 @@ contract ETHUniV3LPStrategyTest is TestUtils {
         uint256 _tradeAmount = ERC20(wETH).balanceOf(_user) / _pairTradeCount;
 
         (uint256 _token0OwedBefore, uint256 _token1OwedBefore) =
-            UniV3PositionMath.getLastComputedFees(_univ3PosMgr, _nftPositionId);
+            UniV3PositionMath.getLatestFees(_univ3PosMgr, _pool, _nftPositionId);
 
         vm.startPrank(_user);
         for (uint256 i = 0; i < _pairTradeCount; i++) {

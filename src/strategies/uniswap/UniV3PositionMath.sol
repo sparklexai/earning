@@ -12,14 +12,84 @@ library UniV3PositionMath {
     uint8 internal constant q96_RESOLUTION = 96;
 
     /*
-     * @dev this method returns uncollected fees owed to the position as of the last computation
-     * @dev which might under-estimate the actual accumulated fees.
-     * @dev for accurate fee number, use triggerFeeUpdate() instead
+     * @dev this method returns latest uncollected fees owed to the position
      */
-    function getLastComputedFees(address _nftMgr, uint256 tokenId) public view returns (uint256, uint256) {
+    function getLatestFees(address _nftMgr, address _pool, uint256 tokenId) public view returns (uint256, uint256) {
         INonfungiblePositionManager.NFTPositionData memory _positionData =
             INonfungiblePositionManager(_nftMgr).positions(tokenId);
-        return (uint256(_positionData.tokensOwed0), uint256(_positionData.tokensOwed1));
+
+        (uint256 _token0FeeLatest, uint256 _token1FeeLatest) = _calculateLatestFeeForPos(
+            IUniswapV3PoolImmutables(_pool),
+            _positionData.tickLower,
+            _positionData.tickUpper,
+            _positionData.liquidity,
+            _positionData.feeGrowthInside0LastX128,
+            _positionData.feeGrowthInside1LastX128
+        );
+        return (
+            uint256(_positionData.tokensOwed0) + _token0FeeLatest, uint256(_positionData.tokensOwed1) + _token1FeeLatest
+        );
+    }
+
+    // referece https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/PositionValue.sol#L111
+    function _calculateLatestFeeForPos(
+        IUniswapV3PoolImmutables pool,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 liquidity,
+        uint256 lastPositionFeeGrowthInside0LastX128,
+        uint256 lastPositionFeeGrowthInside1LastX128
+    ) private view returns (uint256 amount0, uint256 amount1) {
+        (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) = _getFeeGrowthInside(pool, tickLower, tickUpper);
+
+        if (feeGrowthInside0X128 > lastPositionFeeGrowthInside0LastX128) {
+            amount0 = FullMath.mulDiv(
+                feeGrowthInside0X128 - lastPositionFeeGrowthInside0LastX128, uint256(liquidity), UniV3PositionMath.Q128
+            );
+        }
+
+        if (feeGrowthInside1X128 > lastPositionFeeGrowthInside1LastX128) {
+            amount1 = FullMath.mulDiv(
+                feeGrowthInside1X128 - lastPositionFeeGrowthInside1LastX128, uint256(liquidity), UniV3PositionMath.Q128
+            );
+        }
+
+        return (amount0, amount1);
+    }
+
+    function _getFeeGrowthInside(IUniswapV3PoolImmutables pool, int24 tickLower, int24 tickUpper)
+        private
+        view
+        returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128)
+    {
+        (, int24 tickCurrent,,,,,) = pool.slot0();
+        (,, uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128,,,,) = pool.ticks(tickLower);
+        (,, uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128,,,,) = pool.ticks(tickUpper);
+
+        if (tickCurrent < tickLower) {
+            feeGrowthInside0X128 = lowerFeeGrowthOutside0X128 - upperFeeGrowthOutside0X128;
+            feeGrowthInside1X128 = lowerFeeGrowthOutside1X128 - upperFeeGrowthOutside1X128;
+        } else if (tickCurrent < tickUpper) {
+            uint256 feeGrowthGlobal0X128 = pool.feeGrowthGlobal0X128();
+            uint256 feeGrowthGlobal1X128 = pool.feeGrowthGlobal1X128();
+
+            uint256 _toMiusInside0 = lowerFeeGrowthOutside0X128 + upperFeeGrowthOutside0X128;
+            if (feeGrowthGlobal0X128 > _toMiusInside0) {
+                feeGrowthInside0X128 = feeGrowthGlobal0X128 - _toMiusInside0;
+            } else {
+                feeGrowthInside0X128 = 0;
+            }
+
+            uint256 _toMiusInside1 = lowerFeeGrowthOutside1X128 + upperFeeGrowthOutside1X128;
+            if (feeGrowthGlobal1X128 > _toMiusInside1) {
+                feeGrowthInside1X128 = feeGrowthGlobal1X128 - _toMiusInside1;
+            } else {
+                feeGrowthInside1X128 = 0;
+            }
+        } else {
+            feeGrowthInside0X128 = upperFeeGrowthOutside0X128 - lowerFeeGrowthOutside0X128;
+            feeGrowthInside1X128 = upperFeeGrowthOutside1X128 - lowerFeeGrowthOutside1X128;
+        }
     }
 
     /* 
